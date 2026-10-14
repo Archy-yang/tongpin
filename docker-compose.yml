@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.0-pg16
+    container_name: tongpin-postgres
+    environment:
+      POSTGRES_USER: tongpin
+      POSTGRES_PASSWORD: tongpin
+      POSTGRES_DB: tongpin
+    ports:
+      - "5432:5432"
+    volumes:
+      - tongpin_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tongpin"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  tongpin_pgdata:
