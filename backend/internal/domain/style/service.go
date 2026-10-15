@@ -95,6 +95,15 @@ func (s *Service) AnalyzeUser(ctx context.Context, userID int64) error {
 	return nil
 }
 
+// LatestAnalysis 供 chat 域适配器读取最新 analysis 画像（消费方接口的数据源）。
+func (s *Service) LatestAnalysis(ctx context.Context, userID int64) (profile []byte, confidence float64, ok bool, err error) {
+	rec, err := s.repo.LatestProfile(ctx, userID)
+	if err != nil || rec == nil {
+		return nil, 0, false, err
+	}
+	return rec.Profile, rec.Confidence, true, nil
+}
+
 // View 风格卡查看：collecting（未生成）或 ready（含展示层合并结果）。
 func (s *Service) View(ctx context.Context, userID int64) (ProfileView, error) {
 	total, err := s.chat.CountMessages(ctx, userID)

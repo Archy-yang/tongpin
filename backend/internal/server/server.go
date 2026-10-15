@@ -4,6 +4,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -90,7 +91,8 @@ func (s *Server) registerRoutes() {
 
 	// chat 域：AI 陪伴聊天
 	provider := llm.NewOpenAICompat(s.cfg.LLM.BaseURL, s.cfg.LLM.APIKey, s.cfg.LLM.Model)
-	chatSvc := chat.NewService(chat.NewRepository(s.db), provider)
+	chatRepo := chat.NewRepository(s.db)
+	chatSvc := chat.NewService(chatRepo, provider, nil) // style 尚未创建，下面回填风格对齐
 	chatHandler := chat.NewHandler(chatSvc)
 	chatHandler.RegisterRoutes(authed)
 
@@ -98,6 +100,9 @@ func (s *Server) registerRoutes() {
 	styleRepo := style.NewRepository(s.db)
 	s.styleSvc = style.NewService(styleRepo, chatMessageSource{chat: chatSvc}, llmCompleter{p: provider})
 	style.NewHandler(s.styleSvc).RegisterRoutes(authed)
+
+	// 回填：chat 的风格对齐来自 style 域（chat 与 style 互不 import，经接口解耦）
+	chatSvc.SetStyleHints(styleHintProvider{style: s.styleSvc})
 
 	// 安全域（match/contact 依赖其拉黑检查）
 	safetySvc := safety.NewService(safety.NewRepository(s.db))
@@ -150,6 +155,39 @@ func (a authDirectory) Basic(ctx context.Context, userID int64) (match.BasicUser
 		Nickname: b.Nickname, Gender: b.Gender, GenderPref: b.GenderPref,
 		AgeRange: b.AgeRange, City: b.City,
 	}, nil
+}
+
+// styleHintProvider 把 style.Service 适配为 chat.StyleHintProvider（AI 回复风格对齐）。
+type styleHintProvider struct{ style *style.Service }
+
+func (a styleHintProvider) Hint(ctx context.Context, userID int64) (chat.StyleHint, bool, error) {
+	raw, confidence, ok, err := a.style.LatestAnalysis(ctx, userID)
+	if err != nil || !ok {
+		return chat.StyleHint{}, false, err
+	}
+	var p struct {
+		CommunicationStyle struct {
+			ReplyLength string  `json:"reply_length"`
+			Formality   string  `json:"formality"`
+			EmojiUsage  string  `json:"emoji_usage"`
+			Pace        string  `json:"pace"`
+			Initiative  float64 `json:"initiative"`
+		} `json:"communication_style"`
+		EmotionalStyle struct {
+			Tone string `json:"tone"`
+		} `json:"emotional_style"`
+	}
+	if json.Unmarshal(raw, &p) != nil {
+		return chat.StyleHint{}, false, nil // 画像解析失败时降级为基础人格
+	}
+	return chat.StyleHint{
+		ReplyLength: p.CommunicationStyle.ReplyLength,
+		Formality:   p.CommunicationStyle.Formality,
+		EmojiUsage:  p.CommunicationStyle.EmojiUsage,
+		Tone:        p.EmotionalStyle.Tone,
+		Pace:        p.CommunicationStyle.Pace,
+		Confidence:  confidence,
+	}, true, nil
 }
 
 // authNamer 把 auth.Service 适配为 contact.UserDirectory。
