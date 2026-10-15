@@ -23,6 +23,7 @@ onMounted(async () => {
     <nav class="tabbar">
       <router-link to="/chat" class="tab">夜聊</router-link>
       <router-link to="/style" class="tab">同频卡</router-link>
+      <router-link to="/meet" class="tab">遇见</router-link>
       <router-link to="/me" class="tab">我的</router-link>
     </nav>
   </div>

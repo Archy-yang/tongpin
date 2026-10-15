@@ -13,7 +13,9 @@ const greeting = { id: -1, is_ai: true, content: '我在。今晚想聊点什么
 onMounted(async () => {
   try {
     const history = await loadChatHistory()
-    messages.value = history.length ? history : [greeting]
+    // 后端游标分页倒序返回（新的在前），界面按正序渲染
+    const ordered = history.reverse()
+    messages.value = ordered.length ? ordered : [greeting]
   } catch (e) {
     messages.value = [greeting]
     error.value = '聊天记录加载失败，先聊聊看'

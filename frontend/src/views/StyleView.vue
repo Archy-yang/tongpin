@@ -108,6 +108,8 @@ async function remove() {
         对方看到的只是契合点，看不到卡片本身。
       </p>
 
+      <router-link to="/meet" class="meet-cta">拿这张卡去遇见 →</router-link>
+
       <div class="danger-zone">
         <button class="ghost" :disabled="deleting" @click="remove">
           {{ confirmingDelete ? '再按一次确认删除' : '删除这张卡' }}
@@ -199,6 +201,18 @@ async function remove() {
   color: var(--mist);
   font-size: 13px;
   line-height: 1.7;
+}
+.meet-cta {
+  display: block;
+  margin-top: 18px;
+  text-align: center;
+  background: var(--amber);
+  color: #191510;
+  border-radius: 10px;
+  padding: 11px 0;
+  font-size: 15px;
+  font-weight: 600;
+  text-decoration: none;
 }
 .danger-zone { margin-top: 18px; }
 .ghost {

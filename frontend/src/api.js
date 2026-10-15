@@ -48,6 +48,55 @@ export async function deleteStyleProfile() {
   return request('DELETE', '/style-profile')
 }
 
+// ---- 匹配与真人接触 ----
+
+export async function getOptIn() {
+  return request('GET', '/match/opt-in') // 从未 opt-in 时 data 为 null
+}
+
+export async function optIn(payload) {
+  return request('POST', '/match/opt-in', payload)
+}
+
+export async function withdrawOptIn() {
+  return request('DELETE', '/match/opt-in')
+}
+
+export async function loadSuggestions() {
+  return request('GET', '/match/suggestions')
+}
+
+export async function createContactRequest(matchId) {
+  return request('POST', '/contact/requests', { match_id: matchId })
+}
+
+export async function listRequests(box) {
+  const data = await request('GET', `/contact/requests?box=${box}`)
+  return data.requests ?? []
+}
+
+export async function approveRequest(id) {
+  return request('POST', `/contact/requests/${id}/approve`)
+}
+
+export async function rejectRequest(id) {
+  return request('POST', `/contact/requests/${id}/reject`)
+}
+
+export async function revokeRequest(id) {
+  return request('POST', `/contact/requests/${id}/revoke`)
+}
+
+export async function loadDirect(matchId, before) {
+  const q = before ? `?before=${before}&limit=30` : '?limit=30'
+  const data = await request('GET', `/dm/${matchId}/messages${q}`)
+  return data.messages ?? []
+}
+
+export async function sendDirect(matchId, content) {
+  return request('POST', `/dm/${matchId}/messages`, { content })
+}
+
 async function me(token) {
   const data = await request('GET', '/me', null, token)
   return data
