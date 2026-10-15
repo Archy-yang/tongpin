@@ -1,7 +1,7 @@
 <script setup>
 import { onMounted, onUnmounted, ref, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
-import { loadDirect, sendDirect } from '../api.js'
+import { loadDirect, sendDirect, sendFeedback } from '../api.js'
 
 const route = useRoute()
 const matchId = route.params.matchId
@@ -11,6 +11,7 @@ const draft = ref('')
 const error = ref('')
 const sending = ref(false)
 const bottom = ref(null)
+const feedback = ref('') // 'like' | 'mismatch' | ''（已反馈）
 let timer = null
 
 onMounted(async () => {
@@ -58,13 +59,28 @@ async function send() {
 function scrollBottom() {
   nextTick(() => bottom.value?.scrollIntoView({ behavior: 'smooth', block: 'end' }))
 }
+
+async function rate(direction) {
+  if (feedback.value) return
+  feedback.value = direction
+  try {
+    await sendFeedback(matchId, direction)
+  } catch (e) {
+    error.value = e.message
+  }
+}
 </script>
 
 <template>
   <main class="dm">
     <header class="bar">
       <router-link to="/meet" class="back">← 遇见</router-link>
-      <p class="note">真人对话 · 请真诚相待</p>
+      <div class="rate" v-if="!feedback">
+        <button class="rate-btn" @click="rate('like')" title="聊得来">聊得来</button>
+        <button class="rate-btn" @click="rate('mismatch')" title="不合适">不合适</button>
+      </div>
+      <p class="note" v-else-if="feedback === 'like'">同频，真好</p>
+      <p class="note" v-else>收到，之后会少推这样的人</p>
     </header>
 
     <div class="stream">
@@ -104,6 +120,16 @@ function scrollBottom() {
 }
 .back { color: var(--amber); text-decoration: none; font-size: 14px; }
 .note { color: var(--mist); font-size: 12.5px; margin: 0; }
+.rate { display: flex; gap: 8px; }
+.rate-btn {
+  background: none;
+  border: 1px solid var(--line);
+  color: var(--mist);
+  border-radius: 8px;
+  padding: 4px 10px;
+  font-size: 12.5px;
+}
+.rate-btn:hover { border-color: var(--amber); color: var(--amber); }
 .stream { flex: 1; overflow-y: auto; padding: 16px 18px 8px; }
 .empty { color: var(--mist); text-align: center; font-family: var(--serif); margin-top: 48px; }
 .me-line, .them-line { display: flex; margin: 10px 0; }

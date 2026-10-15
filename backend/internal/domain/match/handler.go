@@ -24,6 +24,28 @@ func (h *Handler) RegisterRoutes(rg gin.IRouter) {
 	rg.GET("/match/opt-in", h.myOptIn)
 	rg.DELETE("/match/opt-in", h.withdraw)
 	rg.GET("/match/suggestions", h.suggestions)
+	rg.POST("/match/feedback", h.feedback)
+}
+
+func (h *Handler) feedback(c *gin.Context) {
+	var req struct {
+		MatchID   int64  `json:"match_id" binding:"required"`
+		Direction string `json:"direction" binding:"required,oneof=like mismatch"`
+		Note      string `json:"note" binding:"max=500"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.FailBusiness(c, httpx.CodeInvalidParam, "参数错误")
+		return
+	}
+	if err := h.svc.SaveFeedback(c.Request.Context(), middleware.UserIDFrom(c), req.MatchID, req.Direction, req.Note); err != nil {
+		if errors.Is(err, ErrNotParticipant) {
+			httpx.Fail(c, 403, httpx.CodeForbidden, "无权操作")
+			return
+		}
+		httpx.FailInternal(c, "提交反馈失败")
+		return
+	}
+	httpx.OK(c, nil)
 }
 
 func (h *Handler) optIn(c *gin.Context) {

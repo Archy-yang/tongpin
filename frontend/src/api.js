@@ -97,6 +97,29 @@ export async function sendDirect(matchId, content) {
   return request('POST', `/dm/${matchId}/messages`, { content })
 }
 
+// ---- AI 暖场与聊后反馈（P1）----
+
+export async function createIcebreak(matchId) {
+  return request('POST', '/icebreak/requests', { match_id: matchId })
+}
+
+export async function myIcebreaks() {
+  const data = await request('GET', '/icebreak/mine')
+  return data.sessions ?? []
+}
+
+export async function approveIcebreak(id) {
+  return request('POST', `/icebreak/sessions/${id}/approve`)
+}
+
+export async function declineIcebreak(id) {
+  return request('POST', `/icebreak/sessions/${id}/decline`)
+}
+
+export async function sendFeedback(matchId, direction) {
+  return request('POST', '/match/feedback', { match_id: matchId, direction })
+}
+
 async function me(token) {
   const data = await request('GET', '/me', null, token)
   return data

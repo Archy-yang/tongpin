@@ -221,6 +221,21 @@ func (s *Service) generateIfNeeded(ctx context.Context, userID int64) error {
 	return nil
 }
 
+// SaveFeedback 聊后反馈：匹配质量数据闭环，后续用于修正打分权重。
+func (s *Service) SaveFeedback(ctx context.Context, userID, matchID int64, direction, note string) error {
+	if direction != "like" && direction != "mismatch" {
+		return errInvalidOptIn
+	}
+	ok, err := s.ParticipantOf(ctx, matchID, userID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrNotParticipant
+	}
+	return s.repo.SaveFeedback(ctx, matchID, userID, direction, note)
+}
+
 // CloseByUser 供 consent 域通过接口调用：撤回授权时关闭匹配。
 func (s *Service) CloseByUser(ctx context.Context, matchID, userID int64) error {
 	return s.repo.CloseByUser(ctx, matchID, userID)

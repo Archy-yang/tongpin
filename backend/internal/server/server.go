@@ -15,6 +15,7 @@ import (
 	"github.com/Archy-yang/tongpin/backend/internal/domain/chat"
 	"github.com/Archy-yang/tongpin/backend/internal/domain/consent"
 	"github.com/Archy-yang/tongpin/backend/internal/domain/contact"
+	"github.com/Archy-yang/tongpin/backend/internal/domain/icebreak"
 	"github.com/Archy-yang/tongpin/backend/internal/domain/match"
 	"github.com/Archy-yang/tongpin/backend/internal/domain/safety"
 	"github.com/Archy-yang/tongpin/backend/internal/domain/style"
@@ -139,6 +140,16 @@ func (s *Server) registerRoutes() {
 	contact.NewHandler(contactSvc).RegisterRoutes(authed)
 	match.NewHandler(matchSvc).RegisterRoutes(authed)
 	consent.NewHandler(consentSvc).RegisterRoutes(authed)
+
+	// icebreak 域：AI 暖场（双方同意后双代理试聊 + 破冰摘要）
+	icebreakSvc := icebreak.NewService(
+		icebreak.NewRepository(s.db),
+		matchSvc,
+		consentSvc,
+		s.styleSvc,
+		llmCompleter{p: provider},
+	)
+	icebreak.NewHandler(icebreakSvc).RegisterRoutes(authed)
 }
 
 // ---- 跨域适配器（依赖接线只出现在装配层）----

@@ -47,7 +47,8 @@ func NewService(repo *Repository, match MatchGateway, blocks BlockChecker, conse
 	return &Service{repo: repo, match: match, blocks: blocks, consents: consents, users: users}
 }
 
-// Create 发起真人接触请求（请求方）。需：我是 match 参与方且 match 处于 suggested。
+// Create 发起真人接触请求（请求方）。需：我是 match 参与方，match 处于
+// suggested（直接接触）或 icebreak_ready（看过暖场摘要后决定见面）。
 func (s *Service) Create(ctx context.Context, userID, matchID int64) (Request, error) {
 	if ok, err := s.match.ParticipantOf(ctx, matchID, userID); err != nil || !ok {
 		return Request{}, ErrNotParticipant
@@ -56,7 +57,7 @@ func (s *Service) Create(ctx context.Context, userID, matchID int64) (Request, e
 	if err != nil {
 		return Request{}, err
 	}
-	if status != "suggested" {
+	if status != "suggested" && status != "icebreak_ready" {
 		return Request{}, ErrWrongState
 	}
 

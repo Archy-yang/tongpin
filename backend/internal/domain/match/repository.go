@@ -209,6 +209,17 @@ func (r *Repository) UpdateStatus(ctx context.Context, matchID int64, status str
 	return err
 }
 
+// SaveFeedback 聊后反馈（每人每匹配一条，可覆盖）。
+func (r *Repository) SaveFeedback(ctx context.Context, matchID, userID int64, direction, note string) error {
+	_, err := r.db.Exec(ctx, `
+		INSERT INTO conversation_feedback (match_id, user_id, direction, note)
+		VALUES ($1, $2, $3, NULLIF($4, ''))
+		ON CONFLICT (match_id, user_id) DO UPDATE
+		SET direction = $3, note = NULLIF($4, ''), updated_at = now()
+	`, matchID, userID, direction, note)
+	return err
+}
+
 // CloseByUser 用户撤回授权时关闭匹配（需为参与方）。
 func (r *Repository) CloseByUser(ctx context.Context, matchID, userID int64) error {
 	_, err := r.db.Exec(ctx, `

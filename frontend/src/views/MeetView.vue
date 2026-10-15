@@ -1,18 +1,21 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import {
   getOptIn, optIn, loadSuggestions, createContactRequest,
   listRequests, approveRequest, rejectRequest, revokeRequest,
+  createIcebreak, myIcebreaks, approveIcebreak, declineIcebreak,
 } from '../api.js'
 
 const loading = ref(true)
-const opted = ref(null)   // opt-in 状态（null = 未进入）
-const view = ref(null)    // suggestions 响应
+const opted = ref(null)
+const view = ref(null)
 const inbox = ref([])
 const outbox = ref([])
+const icebreaks = ref([]) // 按 match_id 索引的暖场会话
 const error = ref('')
 const joining = ref(false)
 const busyId = ref(null)
+let pollTimer = null
 
 const form = ref({
   relationship_intent: 'serious_but_slow',
@@ -24,12 +27,26 @@ const form = ref({
 const intents = [
   { v: 'casual', label: '随便聊聊' },
   { v: 'friends', label: '先做朋友' },
-  { v: 'friends_slow', label: '' }, // 占位防误用
   { v: 'serious_but_slow', label: '认真但慢慢来' },
   { v: 'serious', label: '认真关系' },
-].filter(i => i.label)
+]
 
-onMounted(refresh)
+const icebreakByMatch = computed(() => {
+  const map = {}
+  for (const s of icebreaks.value) map[s.match_id] = s
+  return map
+})
+
+const hasGenerating = computed(() => icebreaks.value.some(s => s.status === 'generating'))
+
+onMounted(async () => {
+  await refresh()
+  pollTimer = setInterval(async () => {
+    if (hasGenerating.value) await loadIcebreaks()
+  }, 5000)
+})
+
+onUnmounted(() => clearInterval(pollTimer))
 
 async function refresh() {
   loading.value = true
@@ -37,7 +54,7 @@ async function refresh() {
   try {
     opted.value = await getOptIn()
     if (opted.value) {
-      await Promise.all([loadAll(), loadRequests()])
+      await Promise.all([loadAll(), loadRequests(), loadIcebreaks()])
     }
   } catch (e) {
     error.value = e.message
@@ -46,15 +63,15 @@ async function refresh() {
   }
 }
 
-async function loadAll() {
-  view.value = await loadSuggestions()
-}
+async function loadAll() { view.value = await loadSuggestions() }
 
 async function loadRequests() {
   const [i, o] = await Promise.all([listRequests('inbox'), listRequests('outbox')])
   inbox.value = i
   outbox.value = o
 }
+
+async function loadIcebreaks() { icebreaks.value = await myIcebreaks() }
 
 async function join() {
   joining.value = true
@@ -76,26 +93,12 @@ async function join() {
   }
 }
 
-async function reach(matchId) {
-  busyId.value = matchId
-  error.value = ''
-  try {
-    await createContactRequest(matchId)
-    await loadRequests()
-    await loadAll()
-  } catch (e) {
-    error.value = e.message
-  } finally {
-    busyId.value = null
-  }
-}
-
 async function act(fn, id) {
   busyId.value = id
   error.value = ''
   try {
     await fn(id)
-    await Promise.all([loadRequests(), loadAll()])
+    await Promise.all([loadRequests(), loadAll(), loadIcebreaks()])
   } catch (e) {
     error.value = e.message
   } finally {
@@ -103,10 +106,14 @@ async function act(fn, id) {
   }
 }
 
-const approvedInbox = () => inbox.value.filter(r => r.status === 'approved')
+const approvedOutbox = () => outbox.value.filter(r => r.status === 'approved')
 const pendingInbox = () => inbox.value.filter(r => r.status === 'pending')
 const pendingOutbox = () => outbox.value.filter(r => r.status === 'pending')
-const approvedOutbox = () => outbox.value.filter(r => r.status === 'approved')
+const approvedInbox = () => inbox.value.filter(r => r.status === 'approved')
+
+// 待我同意的暖场请求（我是 to_user 且 pending）
+const incomingIcebreaks = () => icebreaks.value.filter(s => s.status === 'pending' && s.to_user !== s.from_user && !outbox.value.some(r => r.match_id === s.match_id) && !inbox.value.some(r => r.match_id === s.match_id))
+const activeIcebreaks = () => icebreaks.value.filter(s => ['generating', 'ready', 'failed'].includes(s.status))
 </script>
 
 <template>
@@ -158,6 +165,50 @@ const approvedOutbox = () => outbox.value.filter(r => r.status === 'approved')
 
     <!-- 已进入 -->
     <template v-else>
+      <!-- 暖场：待我同意 -->
+      <section v-if="incomingIcebreaks().length" class="reqs">
+        <h2>暖场请求</h2>
+        <article v-for="s in incomingIcebreaks()" :key="'ib' + s.id" class="req">
+          <p class="who">对方想先让两个 AI 替你们试试聊不聊得来</p>
+          <div class="acts">
+            <button class="primary" :disabled="busyId === s.id" @click="act(approveIcebreak, s.id)">让 AI 试试</button>
+            <button class="ghost" :disabled="busyId === s.id" @click="act(declineIcebreak, s.id)">不必了</button>
+          </div>
+        </article>
+      </section>
+
+      <!-- 暖场：进行中 / 完成 -->
+      <section v-if="activeIcebreaks().length" class="reqs">
+        <h2>AI 暖场</h2>
+        <article v-for="s in activeIcebreaks()" :key="'ibg' + s.id" class="req">
+          <template v-if="s.status === 'generating'">
+            <p class="who">两个 AI 正在替你们试聊……</p>
+            <p class="ice-note">大约十几秒，好了会自己亮出来</p>
+          </template>
+          <template v-else-if="s.status === 'ready' && s.summary">
+            <p class="who">AI 试聊后的观察</p>
+            <ul class="hl">
+              <li v-for="(p, i) in s.summary.common_points" :key="'c' + i">{{ p }}</li>
+            </ul>
+            <p class="ice-label">可以聊</p>
+            <ul class="hl">
+              <li v-for="(t, i) in s.summary.topics" :key="'t' + i">{{ t }}</li>
+            </ul>
+            <p class="ice-label">小心点</p>
+            <ul class="hl">
+              <li v-for="(c, i) in s.summary.cautions" :key="'w' + i">{{ c }}</li>
+            </ul>
+            <p class="ice-label">开场建议</p>
+            <p class="opener">{{ s.summary.opener }}</p>
+            <button class="primary" :disabled="busyId === s.match_id" @click="act(createContactRequest, s.match_id)">说说话</button>
+          </template>
+          <template v-else-if="s.status === 'failed'">
+            <p class="who">暖场没弄成，但不影响你们直接聊</p>
+            <button class="primary" :disabled="busyId === s.match_id" @click="act(createContactRequest, s.match_id)">说说话</button>
+          </template>
+        </article>
+      </section>
+
       <!-- 契合提示 -->
       <section v-if="view?.pool_status === 'warming_up'" class="warming">
         <p class="warm-num">{{ view.active_users }}</p>
@@ -172,19 +223,20 @@ const approvedOutbox = () => outbox.value.filter(r => r.status === 'approved')
           <ul class="hl">
             <li v-for="(h, idx) in s.highlights" :key="idx">{{ h }}</li>
           </ul>
-          <button
-            v-if="!outbox.some(r => r.match_id === s.match_id) && !approvedOutbox().some(r => r.match_id === s.match_id)"
-            class="primary" :disabled="busyId === s.match_id" @click="reach(s.match_id)"
-          >说说话</button>
+          <div class="acts" v-if="!icebreakByMatch[s.match_id] && !outbox.some(r => r.match_id === s.match_id) && !approvedOutbox().some(r => r.match_id === s.match_id)">
+            <button class="primary" :disabled="busyId === s.match_id" @click="act(createContactRequest, s.match_id)">说说话</button>
+            <button class="ghost" :disabled="busyId === s.match_id" @click="act(createIcebreak, s.match_id)">先让 AI 试试</button>
+          </div>
+          <p v-else-if="icebreakByMatch[s.match_id]" class="sent">暖场里见</p>
           <p v-else class="sent">已递出纸条，等对方回应</p>
         </article>
       </section>
 
-      <section v-else class="none">
+      <section v-else-if="!activeIcebreaks().length && !incomingIcebreaks().length" class="none">
         <p>暂时没有契合的人。你的同频卡会一直替你留意。</p>
       </section>
 
-      <!-- 收到的请求 -->
+      <!-- 收到的真人接触请求 -->
       <section v-if="pendingInbox().length || approvedInbox().length" class="reqs">
         <h2>递来的纸条</h2>
         <article v-for="r in pendingInbox()" :key="r.id" class="req">
@@ -220,17 +272,8 @@ const approvedOutbox = () => outbox.value.filter(r => r.status === 'approved')
 </template>
 
 <style scoped>
-.meet {
-  flex: 1;
-  overflow-y: auto;
-  padding: 28px 22px 30px;
-}
-.head h1 {
-  font-family: var(--serif);
-  font-weight: 600;
-  font-size: 26px;
-  margin: 0;
-}
+.meet { flex: 1; overflow-y: auto; padding: 28px 22px 30px; }
+.head h1 { font-family: var(--serif); font-weight: 600; font-size: 26px; margin: 0; }
 .sub { margin: 4px 0 0; color: var(--mist); font-size: 14px; }
 .error { color: #d98f6a; font-size: 14px; }
 .hint { color: var(--mist); }
@@ -241,87 +284,35 @@ const approvedOutbox = () => outbox.value.filter(r => r.status === 'approved')
   font-size: 16px;
   line-height: 1.8;
   max-width: 30ch;
-  color: var(--paper);
 }
 .join-form { display: flex; flex-direction: column; gap: 14px; margin-top: 20px; }
 .join-form label { display: flex; flex-direction: column; gap: 6px; }
 .join-form span { color: var(--mist); font-size: 14px; }
-select, .join-form input[type='checkbox'] { accent-color: var(--amber); }
-select {
-  font-family: inherit;
-  background: var(--panel);
-  color: var(--paper);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 10px 12px;
-  font-size: 15px;
-}
+select { accent-color: var(--amber); font-family: inherit; background: var(--panel); color: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font-size: 15px; }
 .age-row { display: flex; gap: 14px; }
 .age-row label { flex: 1; }
 .check { flex-direction: row !important; align-items: center; gap: 8px !important; }
 .check span { color: var(--mist); font-size: 13.5px; }
-.join-form button {
-  margin-top: 8px;
-  background: var(--amber);
-  color: #191510;
-  border-radius: 10px;
-  padding: 11px 0;
-  font-size: 15px;
-  font-weight: 600;
-}
+.join-form button { margin-top: 8px; background: var(--amber); color: #191510; border-radius: 10px; padding: 11px 0; font-size: 15px; font-weight: 600; }
 .join-form button:disabled { opacity: 0.5; }
 
 .warming { margin-top: 64px; text-align: center; }
 .warm-num { font-family: var(--serif); font-size: 56px; margin: 0; }
 .warm-text { color: var(--mist); font-size: 15px; line-height: 1.8; margin-top: 10px; }
-
 .none { margin-top: 48px; text-align: center; color: var(--mist); font-size: 15px; }
 
-h2 {
-  font-size: 14.5px;
-  color: var(--mist);
-  font-weight: normal;
-  margin: 26px 0 10px;
-}
-.sug, .req {
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  background: var(--panel);
-  padding: 16px;
-  margin-bottom: 12px;
-}
-.hl {
-  margin: 0 0 12px;
-  padding: 0;
-  list-style: none;
-}
-.hl li {
-  font-family: var(--serif);
-  font-size: 15.5px;
-  padding: 4px 0;
-  color: var(--paper);
-}
-.primary {
-  background: var(--amber);
-  color: #191510;
-  border-radius: 10px;
-  padding: 9px 18px;
-  font-size: 14.5px;
-  font-weight: 600;
-  text-decoration: none;
-  display: inline-block;
-}
+h2 { font-size: 14.5px; color: var(--mist); font-weight: normal; margin: 26px 0 10px; }
+.sug, .req { border: 1px solid var(--line); border-radius: 14px; background: var(--panel); padding: 16px; margin-bottom: 12px; }
+.hl { margin: 0 0 10px; padding: 0; list-style: none; }
+.hl li { font-family: var(--serif); font-size: 15.5px; padding: 3px 0; }
+.ice-label { margin: 10px 0 2px; color: var(--mist); font-size: 13px; }
+.opener { margin: 2px 0 12px; font-family: var(--serif); font-size: 15.5px; }
+.ice-note { margin: 0; color: var(--mist); font-size: 13.5px; }
+.primary { background: var(--amber); color: #191510; border-radius: 10px; padding: 9px 18px; font-size: 14.5px; font-weight: 600; text-decoration: none; display: inline-block; }
 .primary:disabled { opacity: 0.5; }
 .link { padding: 8px 16px; }
-.ghost {
-  background: none;
-  border: 1px solid var(--line);
-  color: var(--mist);
-  border-radius: 10px;
-  padding: 8px 16px;
-  font-size: 14px;
-}
+.ghost { background: none; border: 1px solid var(--line); color: var(--mist); border-radius: 10px; padding: 8px 16px; font-size: 14px; }
 .sent { color: var(--mist); font-size: 14px; margin: 0; }
 .who { margin: 0 0 10px; font-family: var(--serif); font-size: 15.5px; }
-.acts { display: flex; gap: 10px; }
+.acts { display: flex; gap: 10px; align-items: center; }
 </style>
