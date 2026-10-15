@@ -51,6 +51,7 @@ tongpin/
 ### 计划
 - [里程碑](docs/plan/01-milestones.md) — 分阶段开发计划
 - [风险与验收指标](docs/plan/02-risks-metrics.md) — 风险对策与目标值
+- [部署手册](docs/deploy.md) — 单机 Docker Compose 部署、运维、上线检查单
 
 ## 当前状态
 
@@ -67,7 +68,7 @@ tongpin/
 - [x] WebSocket 实时推送（realtime 包）：真人聊天秒达，断线重连 + 轮询兜底
 - [x] 前端（Vue 3）：夜聊 / 同频卡 / 遇见 / 真人聊天 / 我的 五页，移动端 H5，深色夜聊风格（开发：`cd frontend && npm run dev`）
 - [x] 产品全链路 UI：聊天 → 画像 → AI 风格对齐 → 契合提示 → AI 暖场 → 双方同意 → 真人聊天 → 聊后反馈（双账号实测）
-- [ ] 部署上线（Dockerfile + 云主机 + 域名）
+- [ ] 部署上线（部署产物已就绪：`deploy.sh` + 三容器 compose，见 [docs/deploy.md](docs/deploy.md)；待云主机执行）
 - [ ] P1 剩余：语音、付费订阅、关系阶段引导
 
 > 注：原计划的"阶段 0 风格分析 Spike"经决策跳过，风格分析质量随 style 域实现直接验证。
