@@ -24,8 +24,17 @@ const intent = {
   serious: '认真关系', serious_but_slow: '认真但慢慢来',
 }
 const hours = { morning: '清晨', afternoon: '午后', evening: '夜晚', late_night: '深夜' }
+const topics = {
+  music: '音乐', movies: '电影', books: '读书', games: '游戏', sports: '运动',
+  travel: '旅行', food: '美食', philosophy: '哲学', technology: '科技', art: '艺术',
+  life: '生活', work: '工作', career: '职业', relationships: '人际关系', emotions: '情感',
+  health: '健康', finance: '财经', family: '家庭', study: '学习', late_night_thoughts: '深夜漫谈',
+}
 
 function fmt(map, v) { return v ? (map[v] ?? v) : '——' }
+function fmtTopics(list) {
+  return (list ?? []).map(t => topics[t] ?? t).join(' · ') || '——'
+}
 
 onMounted(load)
 
@@ -91,7 +100,7 @@ async function remove() {
 
       <div v-if="view.profile.topic_preferences?.length" class="topics">
         <h2>常聊的话题</h2>
-        <p class="topic-list">{{ view.profile.topic_preferences.join(' · ') }}</p>
+        <p class="topic-list">{{ fmtTopics(view.profile.topic_preferences) }}</p>
       </div>
 
       <p class="note">

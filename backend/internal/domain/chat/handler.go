@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"log"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -31,6 +32,7 @@ func (h *Handler) send(c *gin.Context) {
 	}
 	resp, err := h.svc.SendMessage(c.Request.Context(), middleware.UserIDFrom(c), req.Content)
 	if err != nil {
+		log.Printf("[chat] send user %d: %v", middleware.UserIDFrom(c), err)
 		httpx.FailInternal(c, "AI 走神了，请稍后再试")
 		return
 	}

@@ -4,7 +4,6 @@ package server
 
 import (
 	"context"
-	"log"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -170,11 +169,9 @@ func (d *deferredConsent) Record(ctx context.Context, userID int64, targetType s
 
 // Start 启动后台任务（风格分析 worker）。ctx 结束时 worker 退出。
 func (s *Server) Start(ctx context.Context) {
-	worker := style.NewWorker(s.styleSvc, 5*time.Minute)
+	interval := time.Duration(s.cfg.WorkerIntervalSec) * time.Second
+	worker := style.NewWorker(s.styleSvc, interval)
 	go worker.Run(ctx)
-	if s.cfg.Env != "prod" {
-		log.Println("[dev] style worker interval is 5m; for local testing set a shorter interval in code")
-	}
 }
 
 func (s *Server) Run() error {

@@ -2,17 +2,21 @@
 package config
 
 import (
+	"bufio"
 	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 )
 
 type Config struct {
-	Env              string // dev | prod
-	Port             string
-	DatabaseURL      string
-	JWTSecret        string
+	Env                string // dev | prod
+	Port               string
+	DatabaseURL        string
+	JWTSecret          string
 	MatchPoolThreshold int // 契合提示灰度阈值：池内活跃用户低于此值不开匹配（本地测试调低）
-	LLM              LLMConfig
+	WorkerIntervalSec  int // 风格分析 worker 轮询间隔（秒），默认 300
+	LLM                LLMConfig
 }
 
 type LLMConfig struct {
@@ -22,6 +26,7 @@ type LLMConfig struct {
 }
 
 func Load() *Config {
+	loadDotEnv()
 	threshold := 500
 	if v := os.Getenv("MATCH_POOL_THRESHOLD"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
@@ -34,6 +39,7 @@ func Load() *Config {
 		DatabaseURL:        getenv("DATABASE_URL", "postgres://tongpin:tongpin@localhost:5432/tongpin?sslmode=disable"),
 		JWTSecret:          getenv("JWT_SECRET", "dev-secret-change-me"),
 		MatchPoolThreshold: threshold,
+		WorkerIntervalSec:  workerInterval(),
 		LLM: LLMConfig{
 			BaseURL: getenv("LLM_BASE_URL", "https://api.deepseek.com/v1"),
 			APIKey:  getenv("LLM_API_KEY", ""),
@@ -47,4 +53,42 @@ func getenv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func workerInterval() int {
+	if v := os.Getenv("STYLE_WORKER_INTERVAL"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return 300
+}
+
+// loadDotEnv 加载 .env（当前目录或上级目录），已有环境变量优先。
+func loadDotEnv() {
+	candidates := []string{".env", filepath.Join("..", ".env")}
+	for _, path := range candidates {
+		f, err := os.Open(path)
+		if err != nil {
+			continue
+		}
+		defer f.Close()
+		scan := bufio.NewScanner(f)
+		for scan.Scan() {
+			line := strings.TrimSpace(scan.Text())
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			k, v, ok := strings.Cut(line, "=")
+			if !ok {
+				continue
+			}
+			k = strings.TrimSpace(k)
+			v = strings.Trim(strings.TrimSpace(v), `"'`)
+			if os.Getenv(k) == "" {
+				_ = os.Setenv(k, v)
+			}
+		}
+		return // 只加载找到的第一个
+	}
 }
