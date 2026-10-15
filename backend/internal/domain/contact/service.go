@@ -35,12 +35,18 @@ type UserDirectory interface {
 	Nickname(ctx context.Context, userID int64) (string, error)
 }
 
+// RealtimePublisher 新消息实时推送（realtime Hub 适配，可为 nil）。
+type RealtimePublisher interface {
+	PublishDirectMessage(ctx context.Context, matchID int64, msg DirectMessage, toUsers ...int64)
+}
+
 type Service struct {
 	repo     *Repository
 	match    MatchGateway
 	blocks   BlockChecker
 	consents ConsentRecorder
 	users    UserDirectory
+	notifier RealtimePublisher
 }
 
 func NewService(repo *Repository, match MatchGateway, blocks BlockChecker, consents ConsentRecorder, users UserDirectory) *Service {
@@ -159,11 +165,22 @@ func (s *Service) List(ctx context.Context, userID int64, inbox bool) ([]Request
 }
 
 // SendDirect 真人一对一发消息。仅双方 approved（match = in_chat）后可用。
+// 落库后尽力经 WebSocket 推送双方（在线即秒达；离线靠拉取兜底）。
 func (s *Service) SendDirect(ctx context.Context, userID, matchID int64, content string) (DirectMessage, error) {
 	if err := s.ensureChatOpen(ctx, userID, matchID); err != nil {
 		return DirectMessage{}, err
 	}
-	return s.repo.InsertDirectMessage(ctx, matchID, userID, content)
+	msg, err := s.repo.InsertDirectMessage(ctx, matchID, userID, content)
+	if err != nil {
+		return DirectMessage{}, err
+	}
+	if s.notifier != nil {
+		counterpart, err := s.counterpartOf(ctx, matchID, userID)
+		if err == nil {
+			s.notifier.PublishDirectMessage(ctx, matchID, msg, userID, counterpart)
+		}
+	}
+	return msg, nil
 }
 
 // ListDirect 真人聊天历史（游标分页）。
@@ -179,6 +196,11 @@ func (s *Service) ListDirect(ctx context.Context, userID, matchID, before int64,
 		msgs[i].IsMine = msgs[i].SenderID == userID
 	}
 	return msgs, nil
+}
+
+// SetNotifier 装配期注入实时推送（一次性，先于任何请求）。
+func (s *Service) SetNotifier(n RealtimePublisher) {
+	s.notifier = n
 }
 
 // ensureChatOpen 参与方 + match 状态 in_chat + 未互相拉黑。

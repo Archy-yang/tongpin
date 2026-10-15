@@ -22,6 +22,7 @@ import (
 	"github.com/Archy-yang/tongpin/backend/internal/llm"
 	"github.com/Archy-yang/tongpin/backend/internal/platform/jwt"
 	"github.com/Archy-yang/tongpin/backend/internal/platform/middleware"
+	"github.com/Archy-yang/tongpin/backend/internal/realtime"
 )
 
 // llmCompleter 把 llm.Provider 适配为 style.Completer（system+user 两段式）。
@@ -82,6 +83,10 @@ func (s *Server) registerRoutes() {
 
 	api := s.router.Group("/api/v1")
 
+	// WebSocket 实时推送（自带查询参数鉴权，不走 Auth 中间件）
+	hub := realtime.NewHub()
+	s.router.GET("/api/v1/ws", realtime.Serve(hub, issuer))
+
 	// 公开路由
 	authHandler := auth.NewHandler(auth.NewService(auth.NewRepository(s.db), issuer))
 	authHandler.RegisterPublicRoutes(api)
@@ -137,6 +142,7 @@ func (s *Server) registerRoutes() {
 		consentSvc,
 		authNamer{auth: authSvc},
 	)
+	contactSvc.SetNotifier(hubAdapter{hub: hub})
 	contact.NewHandler(contactSvc).RegisterRoutes(authed)
 	match.NewHandler(matchSvc).RegisterRoutes(authed)
 	consent.NewHandler(consentSvc).RegisterRoutes(authed)
@@ -199,6 +205,13 @@ func (a styleHintProvider) Hint(ctx context.Context, userID int64) (chat.StyleHi
 		Pace:        p.CommunicationStyle.Pace,
 		Confidence:  confidence,
 	}, true, nil
+}
+
+// hubAdapter 把 realtime.Hub 适配为 contact.RealtimePublisher。
+type hubAdapter struct{ hub *realtime.Hub }
+
+func (a hubAdapter) PublishDirectMessage(_ context.Context, matchID int64, msg contact.DirectMessage, toUsers ...int64) {
+	a.hub.Broadcast(toUsers, realtime.Frame{Type: "dm", MatchID: matchID, Message: msg})
 }
 
 // authNamer 把 auth.Service 适配为 contact.UserDirectory。

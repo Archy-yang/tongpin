@@ -9,6 +9,7 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:18080',
         changeOrigin: true,
+        ws: true, // WebSocket 升级请求也走此代理
       },
     },
   },

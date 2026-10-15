@@ -12,7 +12,10 @@ const error = ref('')
 const sending = ref(false)
 const bottom = ref(null)
 const feedback = ref('') // 'like' | 'mismatch' | ''（已反馈）
+const live = ref(false)  // WebSocket 是否在线
 let timer = null
+let ws = null
+let wsRetry = null
 
 onMounted(async () => {
   try {
@@ -22,12 +25,46 @@ onMounted(async () => {
   } catch (e) {
     error.value = e.message
   }
-  timer = setInterval(poll, 4000) // MVP 短轮询；WebSocket 为 P1
+  connectWS()
+  // 兜底轮询：WS 在线时降频，离线时 4 秒
+  timer = setInterval(poll, 4000)
 })
 
-onUnmounted(() => clearInterval(timer))
+onUnmounted(() => {
+  clearInterval(timer)
+  clearTimeout(wsRetry)
+  if (ws) { ws.onclose = null; ws.close() }
+})
+
+function connectWS() {
+  const token = localStorage.getItem('tongpin_token')
+  if (!token) return
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws'
+  ws = new WebSocket(`${proto}://${location.host}/api/v1/ws?token=${encodeURIComponent(token)}`)
+  ws.onopen = () => { live.value = true }
+  ws.onmessage = (ev) => {
+    try {
+      const frame = JSON.parse(ev.data)
+      if (frame.type === 'dm' && String(frame.match_id) === String(matchId) && frame.message) {
+        append(frame.message)
+      }
+    } catch { /* 忽略坏帧 */ }
+  }
+  ws.onclose = () => {
+    live.value = false
+    wsRetry = setTimeout(connectWS, 3000) // 断线重连
+  }
+}
+
+function append(msg) {
+  if (messages.value.some(m => m.id === msg.id)) return // REST/WS 双通道去重
+  messages.value.push(msg)
+  scrollBottom()
+}
 
 async function poll() {
+  // WS 在线时只做低频校准；离线时承担兜底
+  if (live.value && messages.value.length && Math.random() > 0.25) return
   try {
     const fresh = (await loadDirect(matchId)).reverse()
     if (fresh.length !== messages.value.length) {
@@ -43,10 +80,11 @@ async function send() {
   sending.value = true
   error.value = ''
   draft.value = ''
-  messages.value.push({ id: Date.now(), is_mine: true, content })
+  messages.value.push({ id: `tmp-${Date.now()}`, is_mine: true, content })
   scrollBottom()
   try {
     await sendDirect(matchId, content)
+    // 整表校准：清理乐观条目，WS 回显 / 兜底轮询的重复也一并消除
     messages.value = (await loadDirect(matchId)).reverse()
   } catch (e) {
     error.value = e.message
@@ -82,6 +120,7 @@ async function rate(direction) {
       <p class="note" v-else-if="feedback === 'like'">同频，真好</p>
       <p class="note" v-else>收到，之后会少推这样的人</p>
     </header>
+    <p class="ws-note">{{ live ? '实时连接中' : '连接中……' }}</p>
 
     <div class="stream">
       <p v-if="!messages.length && !error" class="empty">
@@ -120,6 +159,15 @@ async function rate(direction) {
 }
 .back { color: var(--amber); text-decoration: none; font-size: 14px; }
 .note { color: var(--mist); font-size: 12.5px; margin: 0; }
+.on { color: #8fae7e; }
+.off { color: var(--mist); }
+.ws-note {
+  margin: 0;
+  padding: 4px 18px 0;
+  color: var(--mist);
+  font-size: 11.5px;
+  text-align: right;
+}
 .rate { display: flex; gap: 8px; }
 .rate-btn {
   background: none;
