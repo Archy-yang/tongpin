@@ -32,6 +32,7 @@ onMounted(async () => {
 <style scoped>
 .app-shell {
   flex: 1;
+  min-height: 0; /* 允许被压缩，内部区域自行滚动，tabbar 始终贴底 */
   display: flex;
   flex-direction: column;
 }
