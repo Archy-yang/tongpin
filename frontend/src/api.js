@@ -14,6 +14,40 @@ export async function ensureLogin() {
   return loginFresh()
 }
 
+// ---- 邮箱账号体系 ----
+
+export async function emailRegister(email, password) {
+  const data = await request('POST', '/auth/email/register', { email, password })
+  localStorage.setItem(TOKEN_KEY, data.token)
+  return data.user
+}
+
+export async function emailLogin(email, password) {
+  const data = await request('POST', '/auth/email/login', { email, password })
+  localStorage.setItem(TOKEN_KEY, data.token)
+  return data.user
+}
+
+export async function bindEmail(email, password) {
+  return request('POST', '/auth/email/bind', { email, password })
+}
+
+export async function changePassword(oldPassword, newPassword) {
+  return request('POST', '/auth/password', { old_password: oldPassword, new_password: newPassword })
+}
+
+export async function requestResetCode(email) {
+  return request('POST', '/auth/email/reset-request', { email })
+}
+
+export async function confirmReset(email, code, newPassword) {
+  return request('POST', '/auth/email/reset-confirm', { email, code, new_password: newPassword })
+}
+
+export function logout() {
+  localStorage.removeItem(TOKEN_KEY)
+}
+
 async function loginFresh() {
   let deviceId = localStorage.getItem(DEVICE_KEY)
   if (!deviceId) {

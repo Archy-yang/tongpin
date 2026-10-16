@@ -21,6 +21,7 @@ import (
 	"github.com/Archy-yang/tongpin/backend/internal/domain/style"
 	"github.com/Archy-yang/tongpin/backend/internal/llm"
 	"github.com/Archy-yang/tongpin/backend/internal/platform/jwt"
+	"github.com/Archy-yang/tongpin/backend/internal/platform/mailer"
 	"github.com/Archy-yang/tongpin/backend/internal/platform/middleware"
 	"github.com/Archy-yang/tongpin/backend/internal/realtime"
 )
@@ -89,8 +90,10 @@ func (s *Server) registerRoutes() {
 	s.router.GET("/api/v1/ws", realtime.Serve(hub, issuer))
 
 	// 公开路由
-	authHandler := auth.NewHandler(auth.NewService(auth.NewRepository(s.db), issuer))
+	authSvc := auth.NewService(auth.NewRepository(s.db), issuer, mailer.New(mailer.FromEnv()))
+	authHandler := auth.NewHandler(authSvc)
 	authHandler.RegisterPublicRoutes(api)
+	authHandler.RegisterEmailRoutes(api)
 
 	// 登录态路由
 	authed := api.Group("", authMw)
@@ -116,11 +119,7 @@ func (s *Server) registerRoutes() {
 	safetySvc := safety.NewService(safety.NewRepository(s.db))
 	safety.NewHandler(safetySvc).RegisterRoutes(authed)
 
-	// auth 提供跨域用户信息
-	authRepo := auth.NewRepository(s.db)
-	authSvc := auth.NewService(authRepo, issuer)
-
-	// match 域：匹配池 + 契合提示
+	// match 域：匹配池 + 契合提示（authSvc 已在公开路由处创建，跨域用户信息直接复用）
 	// consent 与 match 互相依赖（match 记授权、consent 撤回时关 match），
 	// 用延迟绑定的记录器打破循环：HTTP 请求发生在装配完成之后，svc 必然已就绪。
 	consentRec := &deferredConsent{}

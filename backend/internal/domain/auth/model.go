@@ -6,13 +6,15 @@ import (
 	"time"
 )
 
-// User 领域模型。MVP 阶段设备匿名登录为主，手机号后置。
+// User 领域模型。设备匿名登录为主，邮箱 + 密码为正式凭证（可后绑定升级）。
 type User struct {
-	ID        int64
-	DeviceID  *string
-	Nickname  string
-	Status    string
-	CreatedAt time.Time
+	ID           int64
+	DeviceID     *string
+	Nickname     string
+	Email        *string
+	PasswordHash *string
+	Status       string
+	CreatedAt    time.Time
 }
 
 type DeviceLoginRequest struct {

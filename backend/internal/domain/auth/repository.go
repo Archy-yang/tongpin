@@ -3,12 +3,17 @@ package auth
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-var ErrUserBanned = errors.New("user banned")
+var (
+	ErrUserBanned        = errors.New("user banned")
+	ErrUserNotFound      = errors.New("user not found")
+	ErrEmailAlreadyBound = errors.New("email already bound")
+)
 
 type Repository struct {
 	db *pgxpool.Pool
@@ -24,14 +29,14 @@ func (r *Repository) UpsertByDeviceID(ctx context.Context, deviceID string) (Use
 		INSERT INTO users (device_id, nickname)
 		VALUES ($1, $2)
 		ON CONFLICT (device_id) DO UPDATE SET updated_at = now()
-		RETURNING id, device_id, nickname, status, created_at, (xmax = 0) AS inserted
+		RETURNING id, device_id, nickname, email, password_hash, status, created_at, (xmax = 0) AS inserted
 	`
 	var (
 		u        User
 		inserted bool
 	)
 	err := r.db.QueryRow(ctx, q, deviceID, GenerateNickname()).
-		Scan(&u.ID, &u.DeviceID, &u.Nickname, &u.Status, &u.CreatedAt, &inserted)
+		Scan(&u.ID, &u.DeviceID, &u.Nickname, &u.Email, &u.PasswordHash, &u.Status, &u.CreatedAt, &inserted)
 	if err != nil {
 		return User{}, false, err
 	}
@@ -42,10 +47,10 @@ func (r *Repository) UpsertByDeviceID(ctx context.Context, deviceID string) (Use
 }
 
 func (r *Repository) GetByID(ctx context.Context, id int64) (User, error) {
-	const q = `SELECT id, device_id, nickname, status, created_at FROM users WHERE id = $1`
+	const q = `SELECT id, device_id, nickname, email, password_hash, status, created_at FROM users WHERE id = $1`
 	var u User
 	err := r.db.QueryRow(ctx, q, id).
-		Scan(&u.ID, &u.DeviceID, &u.Nickname, &u.Status, &u.CreatedAt)
+		Scan(&u.ID, &u.DeviceID, &u.Nickname, &u.Email, &u.PasswordHash, &u.Status, &u.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return User{}, ErrUserBanned // 统一按封禁处理，不泄露用户存在性
 	}
@@ -53,6 +58,96 @@ func (r *Repository) GetByID(ctx context.Context, id int64) (User, error) {
 		return User{}, err
 	}
 	return u, nil
+}
+
+// GetByEmail 按邮箱查用户（登录 / 找回密码）。
+func (r *Repository) GetByEmail(ctx context.Context, email string) (User, error) {
+	const q = `SELECT id, device_id, nickname, email, password_hash, status, created_at FROM users WHERE email = $1`
+	var u User
+	err := r.db.QueryRow(ctx, q, email).
+		Scan(&u.ID, &u.DeviceID, &u.Nickname, &u.Email, &u.PasswordHash, &u.Status, &u.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return User{}, ErrUserNotFound
+	}
+	return u, err
+}
+
+// CreateWithEmail 邮箱注册新用户。
+func (r *Repository) CreateWithEmail(ctx context.Context, email, passwordHash string) (User, error) {
+	const q = `
+		INSERT INTO users (nickname, email, password_hash, email_verified)
+		VALUES ($1, $2, $3, true)
+		RETURNING id, device_id, nickname, email, password_hash, status, created_at
+	`
+	var u User
+	err := r.db.QueryRow(ctx, q, GenerateNickname(), email, passwordHash).
+		Scan(&u.ID, &u.DeviceID, &u.Nickname, &u.Email, &u.PasswordHash, &u.Status, &u.CreatedAt)
+	return u, err
+}
+
+// BindEmail 给现有账号绑定邮箱 + 密码（设备匿名账号升级）。
+func (r *Repository) BindEmail(ctx context.Context, userID int64, email, passwordHash string) error {
+	tag, err := r.db.Exec(ctx, `
+		UPDATE users SET email = $2, password_hash = $3, email_verified = true, updated_at = now()
+		WHERE id = $1 AND email IS NULL
+	`, userID, email, passwordHash)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrEmailAlreadyBound
+	}
+	return nil
+}
+
+// SetPassword 直接更新密码哈希。
+func (r *Repository) SetPassword(ctx context.Context, userID int64, hash string) error {
+	_, err := r.db.Exec(ctx,
+		`UPDATE users SET password_hash = $2, email_verified = true, updated_at = now() WHERE id = $1`,
+		userID, hash)
+	return err
+}
+
+// SaveCode 记录邮箱验证码（哈希存储，15 分钟有效）。
+func (r *Repository) SaveCode(ctx context.Context, email, codeHash, purpose string) error {
+	_, err := r.db.Exec(ctx, `
+		INSERT INTO email_codes (email, code_hash, purpose, expires_at)
+		VALUES ($1, $2, $3, now() + interval '15 minutes')
+	`, email, codeHash, purpose)
+	return err
+}
+
+// ConsumeCode 校验并消费验证码：有效返回 true（同码只能用一次）。
+func (r *Repository) ConsumeCode(ctx context.Context, email, codeHash, purpose string) (bool, error) {
+	tag, err := r.db.Exec(ctx, `
+		UPDATE email_codes SET used_at = now()
+		WHERE id = (
+			SELECT id FROM email_codes
+			WHERE email = $1 AND purpose = $2 AND code_hash = $3
+			  AND used_at IS NULL AND expires_at > now()
+			ORDER BY id DESC LIMIT 1
+		)
+	`, email, purpose, codeHash)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
+// LastCodeAt 最近的验证码创建时间（限流：同邮箱 60s 内只发一条）。
+func (r *Repository) LastCodeAt(ctx context.Context, email, purpose string) (time.Time, bool, error) {
+	var t time.Time
+	err := r.db.QueryRow(ctx, `
+		SELECT created_at FROM email_codes WHERE email = $1 AND purpose = $2
+		ORDER BY id DESC LIMIT 1
+	`, email, purpose).Scan(&t)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return time.Time{}, false, nil
+	}
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	return t, true, nil
 }
 
 // UpdateBasics 更新用户基础设置（匹配硬条件来源）。
