@@ -67,6 +67,8 @@ async function send() {
     messages.value[messages.value.length - 1] = data.user_message
     messages.value.push(data.ai_message)
   } catch (e) {
+    // 免费额度用完（3002）：话还回输入框，不说丢
+    if (e.code === 3002) draft.value = content
     error.value = e.message
   } finally {
     sending.value = false

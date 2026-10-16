@@ -17,6 +17,7 @@ type Config struct {
 	MatchPoolThreshold   int // 契合提示灰度阈值：池内活跃用户低于此值不开匹配（本地测试调低）
 	WorkerIntervalSec    int // 风格/记忆 worker 轮询间隔（秒），默认 300
 	ProactiveIntervalSec int // 主动开话 worker 轮询间隔（秒），默认 900
+	FreeDailyMsgQuota    int // 免费用户每日 AI 聊天条数（0 或负数 = 关闭限制），默认 10
 	LLM                  LLMConfig
 }
 
@@ -42,6 +43,7 @@ func Load() *Config {
 		MatchPoolThreshold:   threshold,
 		WorkerIntervalSec:    workerInterval(),
 		ProactiveIntervalSec: proactiveInterval(),
+		FreeDailyMsgQuota:    freeDailyQuota(),
 		LLM: LLMConfig{
 			BaseURL: getenv("LLM_BASE_URL", "https://api.deepseek.com/v1"),
 			APIKey:  getenv("LLM_API_KEY", ""),
@@ -73,6 +75,15 @@ func proactiveInterval() int {
 		}
 	}
 	return 900
+}
+
+func freeDailyQuota() int {
+	if v := os.Getenv("FREE_DAILY_MSG_QUOTA"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			return n
+		}
+	}
+	return 10
 }
 
 // loadDotEnv 加载 .env（当前目录或上级目录），已有环境变量优先。

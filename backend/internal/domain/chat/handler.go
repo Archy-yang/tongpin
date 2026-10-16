@@ -1,7 +1,9 @@
 package chat
 
 import (
+	"errors"
 	"log"
+	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -58,6 +60,12 @@ func (h *Handler) send(c *gin.Context) {
 	}
 	resp, err := h.svc.SendMessage(c.Request.Context(), middleware.UserIDFrom(c), req.Content)
 	if err != nil {
+		if errors.Is(err, ErrQuotaExceeded) {
+			// 不打错误日志——超额是正常业务路径，不是故障
+			httpx.Fail(c, http.StatusTooManyRequests, httpx.CodeQuotaExceeded,
+				"今天的免费额度用完了，明天再来聊吧")
+			return
+		}
 		log.Printf("[chat] send user %d: %v", middleware.UserIDFrom(c), err)
 		httpx.FailInternal(c, "AI 走神了，请稍后再试")
 		return

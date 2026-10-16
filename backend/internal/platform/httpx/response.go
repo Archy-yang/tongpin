@@ -14,6 +14,7 @@ const (
 	CodeUnauthorized  = 2001
 	CodeForbidden     = 2003
 	CodeBusinessRule  = 3001
+	CodeQuotaExceeded = 3002 // 免费聊天额度用完（HTTP 429，前端引导会员升级）
 	CodeInternal      = 5000
 )
 

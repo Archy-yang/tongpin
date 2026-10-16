@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"math"
@@ -107,10 +108,19 @@ type Service struct {
 	completer ChatCompleter
 	hints     StyleHintProvider // 可为 nil（无画像时纯基础人格）
 	notifier  AINotifier        // 可为 nil（主动消息不实时推送）
+	quota     int               // 免费用户每日聊天条数；<=0 表示关闭额度限制
 }
+
+// ErrQuotaExceeded 当日免费额度用完（handler 据此返回 3002，引导升级会员）。
+var ErrQuotaExceeded = errors.New("daily free quota exceeded")
 
 func NewService(repo *Repository, completer ChatCompleter, hints StyleHintProvider) *Service {
 	return &Service{repo: repo, completer: completer, hints: hints}
+}
+
+// SetFreeQuotaDefault 装配期注入全局默认免费额度（用户级 free_quota 覆盖它，见 checkQuota）。
+func (s *Service) SetFreeQuotaDefault(n int) {
+	s.quota = n
 }
 
 // SetStyleHints 装配期回填风格对齐依赖（chat 需要 style 的画像，style 又依赖 chat 的
@@ -163,6 +173,11 @@ func (s *Service) UpdateMemory(ctx context.Context, conv Conversation) error {
 // SendMessage 保存用户消息 → 携带上下文调用 LLM → 保存并返回 AI 回复。
 // 用户消息先落库：即使 LLM 失败，对话记录不丢。
 func (s *Service) SendMessage(ctx context.Context, userID int64, content string) (SendMessageResponse, error) {
+	// 额度检查在落库之前：超额时用户消息不产生半条记录，由前端把草稿还回输入框
+	if err := s.checkQuota(ctx, userID); err != nil {
+		return SendMessageResponse{}, err
+	}
+
 	conv, err := s.repo.GetOrCreateConversation(ctx, userID)
 	if err != nil {
 		return SendMessageResponse{}, fmt.Errorf("get conversation: %w", err)
@@ -198,6 +213,32 @@ func (s *Service) SendMessage(ctx context.Context, userID int64, content string)
 	}
 
 	return SendMessageResponse{UserMessage: toDTO(userMsg), AIMessage: toDTO(aiMsg)}, nil
+}
+
+// checkQuota 免费额度边界：用户级 free_quota 覆盖全局默认（0=用默认，负数=不限额/会员占位）。
+// 检查在用户消息落库前做，超额直接拒绝——不产生半截对话记录。
+func (s *Service) checkQuota(ctx context.Context, userID int64) error {
+	if s.quota <= 0 {
+		return nil // 全局关闭（测试模式 / 显式不限制）
+	}
+	limit, err := s.repo.UserQuota(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("load quota: %w", err)
+	}
+	if limit < 0 {
+		return nil // 不限额（会员占位）
+	}
+	if limit == 0 {
+		limit = s.quota
+	}
+	sent, err := s.repo.CountMessagesToday(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("count today: %w", err)
+	}
+	if sent >= limit {
+		return ErrQuotaExceeded
+	}
+	return nil
 }
 
 // History 游标分页拉取历史消息。before = 0 表示从最新开始。

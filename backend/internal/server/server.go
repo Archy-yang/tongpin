@@ -104,6 +104,7 @@ func (s *Server) registerRoutes() {
 	chatRepo := chat.NewRepository(s.db)
 	chatSvc := chat.NewService(chatRepo, provider, nil) // style 尚未创建，下面回填风格对齐
 	s.chatSvc = chatSvc
+	chatSvc.SetFreeQuotaDefault(s.cfg.FreeDailyMsgQuota)
 	chatSvc.SetNotifier(chatNotifier{hub: hub})
 	chatHandler := chat.NewHandler(chatSvc)
 	chatHandler.RegisterRoutes(authed)

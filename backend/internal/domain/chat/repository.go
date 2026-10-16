@@ -223,6 +223,24 @@ func (r *Repository) CountByUser(ctx context.Context, userID int64) (int, error)
 	return n, err
 }
 
+// UserQuota 读取用户级免费额度覆盖值（0=用全局默认，负数=不限额）。
+func (r *Repository) UserQuota(ctx context.Context, userID int64) (int, error) {
+	var q int
+	err := r.db.QueryRow(ctx, `SELECT free_quota FROM users WHERE id = $1`, userID).Scan(&q)
+	return q, err
+}
+
+// CountMessagesToday 统计用户今日已发消息条数（额度检查用，只算用户自己说的）。
+func (r *Repository) CountMessagesToday(ctx context.Context, userID int64) (int, error) {
+	var n int
+	err := r.db.QueryRow(ctx, `
+		SELECT COUNT(*) FROM messages m
+		JOIN conversations c ON c.id = m.conversation_id
+		WHERE c.user_id = $1 AND m.sender = 'user' AND m.created_at >= CURRENT_DATE
+	`, userID).Scan(&n)
+	return n, err
+}
+
 // ListBefore 游标分页：返回 id < before 的消息，倒序（新的在前）。
 func (r *Repository) ListBefore(ctx context.Context, conversationID, before int64, limit int) ([]Message, error) {
 	const q = `
