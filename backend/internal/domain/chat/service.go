@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"fmt"
+	"log"
 	"math"
 	"strings"
 
@@ -14,7 +15,52 @@ const (
 	historyWindow = 20
 	maxTokens     = 500
 	temperature   = 0.8
+
+	// 长期记忆：距上次更新新增 ≥ 该条数才触发合并
+	memoryTriggerNewMessages = 30
+	// 单次记忆更新最多携带的消息条数
+	maxMemoryMessages = 120
+	// 记忆摘要长度上限（字符），控制注入成本
+	memoryMaxChars = 800
 )
+
+// memorySystemPrompt 记忆整理器：维护跨会话的长期记忆摘要。
+const memorySystemPrompt = `你是记忆整理器。根据对话记录，维护一份关于用户的长期记忆摘要，供 AI 陪伴者下次对话时自然使用。
+
+规则：
+- 只记录：兴趣偏好、生活近况、情绪基调、反复出现的话题、重要个人背景（如职业方向、所在城市这类粒度）、正在经历的事
+- 不要记录：真实姓名、住址、证件号、财务状况、健康细节等敏感信息
+- 用紧凑的中文短句列表，总长不超过 300 字
+- 只输出摘要文本本身，不要任何解释或标题
+- 若提供了旧摘要：在其基础上合并更新；旧内容没有新证据推翻就保留，别丢掉仍然有效的记忆`
+
+// buildMemoryUserPrompt 组装记忆合并请求。
+func buildMemoryUserPrompt(prev string, msgs []Message) string {
+	var b strings.Builder
+	if prev != "" {
+		b.WriteString("当前的记忆摘要（在此基础上合并更新）：\n")
+		b.WriteString(prev)
+		b.WriteString("\n\n新对话记录：\n")
+	} else {
+		b.WriteString("对话记录（首次生成记忆）：\n")
+	}
+	for _, m := range msgs {
+		tag := "user"
+		if m.Sender != "user" {
+			tag = "ai"
+		}
+		fmt.Fprintf(&b, "[%s] %s\n", tag, m.Content)
+	}
+	return b.String()
+}
+
+// memorySection 把记忆注入 system prompt 的段落。
+func memorySection(summary string) string {
+	if summary == "" {
+		return ""
+	}
+	return "\n\n以下是你对这位用户的长期记忆（来自你们过去的相处）。自然地使用它——让对方感到被记得，但不要生硬复述：\n" + summary
+}
 
 // personaBase AI 基础人格（不含风格镜像规则——镜像与画像对齐互斥，见 styleAlignment）。
 const personaBase = `你是「同频」的 AI 陪伴者。你的性格温暖、真诚、有好奇心，善于倾听，不说教、不敷衍。
@@ -70,6 +116,47 @@ func (s *Service) SetStyleHints(hints StyleHintProvider) {
 	s.hints = hints
 }
 
+// UpdateMemory 对单个会话做一次增量记忆合并（异步，不在聊天链路上）。
+// 旧记忆作为合并基础；失败不推进覆盖位置，下个周期自动重试。
+func (s *Service) UpdateMemory(ctx context.Context, conv Conversation) error {
+	msgs, err := s.repo.MessagesAfter(ctx, conv.ID, conv.LastMemoryMsgID, maxMemoryMessages)
+	if err != nil {
+		return fmt.Errorf("load messages: %w", err)
+	}
+	if len(msgs) == 0 {
+		return nil
+	}
+
+	raw, err := s.completer.Chat(ctx, llm.ChatRequest{
+		Messages: []llm.Message{
+			{Role: "system", Content: memorySystemPrompt},
+			{Role: "user", Content: buildMemoryUserPrompt(conv.MemorySummary, msgs)},
+		},
+		Temperature: 0.3, // 整理任务求稳
+		MaxTokens:   400,
+	})
+	if err != nil {
+		return fmt.Errorf("llm summarize: %w", err)
+	}
+
+	summary := strings.TrimSpace(raw)
+	summary = strings.TrimPrefix(summary, "```")
+	summary = strings.TrimSuffix(summary, "```")
+	summary = strings.TrimSpace(summary)
+	if summary == "" {
+		return fmt.Errorf("empty memory summary")
+	}
+	if len([]rune(summary)) > memoryMaxChars {
+		summary = string([]rune(summary)[:memoryMaxChars])
+	}
+
+	if err := s.repo.SaveMemory(ctx, conv.ID, summary, msgs[len(msgs)-1].ID); err != nil {
+		return fmt.Errorf("save memory: %w", err)
+	}
+	log.Printf("[chat] memory updated: conv %d (user %d), %d new messages", conv.ID, conv.UserID, len(msgs))
+	return nil
+}
+
 // SendMessage 保存用户消息 → 携带上下文调用 LLM → 保存并返回 AI 回复。
 // 用户消息先落库：即使 LLM 失败，对话记录不丢。
 func (s *Service) SendMessage(ctx context.Context, userID int64, content string) (SendMessageResponse, error) {
@@ -97,7 +184,7 @@ func (s *Service) SendMessage(ctx context.Context, userID int64, content string)
 		}
 	}
 
-	reply, err := s.completer.Chat(ctx, s.buildRequest(history, hint))
+	reply, err := s.completer.Chat(ctx, s.buildRequest(history, hint, conv.MemorySummary))
 	if err != nil {
 		return SendMessageResponse{}, fmt.Errorf("llm complete: %w", err)
 	}
@@ -140,16 +227,17 @@ func (s *Service) CountMessages(ctx context.Context, userID int64) (int, error) 
 	return s.repo.CountByUser(ctx, userID)
 }
 
-// buildRequest 组装 system 人格（含风格对齐）+ 最近历史。历史中已包含刚落库的用户消息。
+// buildRequest 组装 system 人格（长期记忆 + 风格对齐）+ 最近历史。
+// 历史中已包含刚落库的用户消息。
 // 画像对齐与即时镜像互斥：对齐生效时以对齐为准（更了解用户，且避免两个规则打架）；
 // 无画像或置信度不足时退回即时镜像（从第 1 句起就有同频感）。
-func (s *Service) buildRequest(history []Message, hint *StyleHint) llm.ChatRequest {
+func (s *Service) buildRequest(history []Message, hint *StyleHint, memory string) llm.ChatRequest {
 	style := styleAlignment(hint)
 	if style == "" {
 		style = mirrorRule
 	}
 	messages := make([]llm.Message, 0, len(history)+1)
-	messages = append(messages, llm.Message{Role: "system", Content: personaBase + style})
+	messages = append(messages, llm.Message{Role: "system", Content: personaBase + memorySection(memory) + style})
 	for _, m := range history {
 		role := "user"
 		if m.Sender == "ai" {

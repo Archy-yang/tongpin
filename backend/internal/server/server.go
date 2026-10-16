@@ -63,6 +63,7 @@ type Server struct {
 	router *gin.Engine
 
 	styleSvc *style.Service
+	chatSvc  *chat.Service
 }
 
 func New(cfg *config.Config, db *pgxpool.Pool) *Server {
@@ -99,6 +100,7 @@ func (s *Server) registerRoutes() {
 	provider := llm.NewOpenAICompat(s.cfg.LLM.BaseURL, s.cfg.LLM.APIKey, s.cfg.LLM.Model)
 	chatRepo := chat.NewRepository(s.db)
 	chatSvc := chat.NewService(chatRepo, provider, nil) // style 尚未创建，下面回填风格对齐
+	s.chatSvc = chatSvc
 	chatHandler := chat.NewHandler(chatSvc)
 	chatHandler.RegisterRoutes(authed)
 
@@ -229,11 +231,11 @@ func (d *deferredConsent) Record(ctx context.Context, userID int64, targetType s
 	return d.svc.Record(ctx, userID, targetType, targetID, granted)
 }
 
-// Start 启动后台任务（风格分析 worker）。ctx 结束时 worker 退出。
+// Start 启动后台任务（风格分析 + 长期记忆两个 worker）。ctx 结束时退出。
 func (s *Server) Start(ctx context.Context) {
 	interval := time.Duration(s.cfg.WorkerIntervalSec) * time.Second
-	worker := style.NewWorker(s.styleSvc, interval)
-	go worker.Run(ctx)
+	go style.NewWorker(s.styleSvc, interval).Run(ctx)
+	go chat.NewMemoryWorker(s.chatSvc, interval).Run(ctx)
 }
 
 func (s *Server) Run() error {

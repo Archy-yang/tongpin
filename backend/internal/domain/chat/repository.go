@@ -27,13 +27,71 @@ func (r *Repository) GetOrCreateConversation(ctx context.Context, userID int64) 
 	err := r.db.QueryRow(ctx, q, userID).Scan(&c.ID, &c.UserID, &c.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) { // 已存在，走查询
 		err = r.db.QueryRow(ctx,
-			`SELECT id, user_id, created_at FROM conversations WHERE user_id = $1`, userID).
-			Scan(&c.ID, &c.UserID, &c.CreatedAt)
+			`SELECT id, user_id, created_at, COALESCE(memory_summary, '') FROM conversations WHERE user_id = $1`, userID).
+			Scan(&c.ID, &c.UserID, &c.CreatedAt, &c.MemorySummary)
 	}
 	if err != nil {
 		return Conversation{}, err
 	}
 	return c, nil
+}
+
+// MemoryCandidates 发现需要更新记忆的会话：距上次记忆更新有足够多新消息。
+func (r *Repository) MemoryCandidates(ctx context.Context, minNewMessages int) ([]Conversation, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT c.id, c.user_id, c.last_memory_msg_id FROM conversations c
+		JOIN messages m ON m.conversation_id = c.id AND m.id > c.last_memory_msg_id
+		GROUP BY c.id, c.user_id, c.last_memory_msg_id
+		HAVING COUNT(*) >= $1
+		ORDER BY c.id
+	`, minNewMessages)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []Conversation
+	for rows.Next() {
+		var c Conversation
+		if err := rows.Scan(&c.ID, &c.UserID, &c.LastMemoryMsgID); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// MessagesAfter 取会话中 afterID 之后的消息（正序），供记忆更新取数。
+func (r *Repository) MessagesAfter(ctx context.Context, conversationID, afterID int64, limit int) ([]Message, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT id, sender, content, created_at FROM messages
+		WHERE conversation_id = $1 AND id > $2
+		ORDER BY id ASC LIMIT $3
+	`, conversationID, afterID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []Message
+	for rows.Next() {
+		var m Message
+		if err := rows.Scan(&m.ID, &m.Sender, &m.Content, &m.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
+// SaveMemory 保存记忆摘要并推进覆盖位置。
+func (r *Repository) SaveMemory(ctx context.Context, conversationID int64, summary string, lastMsgID int64) error {
+	_, err := r.db.Exec(ctx, `
+		UPDATE conversations
+		SET memory_summary = NULLIF($2, ''), last_memory_msg_id = $3
+		WHERE id = $1
+	`, conversationID, summary, lastMsgID)
+	return err
 }
 
 func (r *Repository) InsertMessage(ctx context.Context, conversationID int64, sender, content string) (Message, error) {

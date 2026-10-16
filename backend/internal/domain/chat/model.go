@@ -4,9 +4,11 @@ import "time"
 
 // Conversation 一位用户对应一个 AI 陪伴会话。
 type Conversation struct {
-	ID        int64
-	UserID    int64
-	CreatedAt time.Time
+	ID              int64
+	UserID          int64
+	CreatedAt       time.Time
+	MemorySummary   string // 长期记忆摘要（异步 worker 维护，跨会话注入 system prompt）
+	LastMemoryMsgID int64  // 记忆已覆盖到的最大消息 ID
 }
 
 // Message 聊天消息。sender = "user" | "ai"，入库即确定 AI 标识。
