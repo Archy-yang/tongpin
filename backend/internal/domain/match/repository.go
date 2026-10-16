@@ -79,7 +79,7 @@ func (r *Repository) ActivePoolCount(ctx context.Context) (int, error) {
 func (r *Repository) Candidates(ctx context.Context, userID int64) ([]Candidate, error) {
 	const q = `
 		SELECT o.user_id, o.relationship_intent, o.age_pref_min, o.age_pref_max, o.accept_real_contact,
-		       u.gender, COALESCE(u.gender_pref, ''), COALESCE(u.age_range, ''), COALESCE(u.city, ''),
+		       COALESCE(u.gender, ''), COALESCE(u.gender_pref, ''), COALESCE(u.age_range, ''), COALESCE(u.city, ''),
 		       p.profile, p.embedding::text, p.confidence
 		FROM match_opt_ins o
 		JOIN users u ON u.id = o.user_id AND u.status = 'active'
@@ -117,7 +117,7 @@ func (r *Repository) MyProfile(ctx context.Context, userID int64) (*Candidate, e
 	err := r.db.QueryRow(ctx, `
 		SELECT $1::bigint, COALESCE(o.relationship_intent, ''), o.age_pref_min, o.age_pref_max,
 		       COALESCE(o.accept_real_contact, false),
-		       u.gender, COALESCE(u.gender_pref, ''), COALESCE(u.age_range, ''), COALESCE(u.city, ''),
+		       COALESCE(u.gender, ''), COALESCE(u.gender_pref, ''), COALESCE(u.age_range, ''), COALESCE(u.city, ''),
 		       p.profile, p.embedding::text, p.confidence
 		FROM users u
 		LEFT JOIN match_opt_ins o ON o.user_id = u.id
@@ -207,6 +207,73 @@ func (r *Repository) GetByID(ctx context.Context, matchID int64) (*MatchRow, err
 func (r *Repository) UpdateStatus(ctx context.Context, matchID int64, status string) error {
 	_, err := r.db.Exec(ctx, `UPDATE matches SET status = $2 WHERE id = $1`, matchID, status)
 	return err
+}
+
+// FeedbackWithPartnerEmbeddings 取该用户全部聊后反馈及对应对象的画像嵌入。
+func (r *Repository) FeedbackWithPartnerEmbeddings(ctx context.Context, userID int64) ([]FeedbackEntry, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT f.direction, p.embedding::text
+		FROM conversation_feedback f
+		JOIN matches m ON m.id = f.match_id
+		JOIN style_profiles p
+		  ON p.user_id = (CASE WHEN m.user_a = f.user_id THEN m.user_b ELSE m.user_a END)
+		 AND p.source = 'analysis'
+		WHERE f.user_id = $1
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []FeedbackEntry
+	for rows.Next() {
+		var e FeedbackEntry
+		var emb string
+		if err := rows.Scan(&e.Direction, &emb); err != nil {
+			return nil, err
+		}
+		e.Embedding = parseEmbedding(emb)
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// UpsertPreference 保存偏好向量（覆盖式）。
+func (r *Repository) UpsertPreference(ctx context.Context, userID int64, emb []float64, likes, mismatches int) error {
+	_, err := r.db.Exec(ctx, `
+		INSERT INTO user_match_preferences (user_id, embedding, like_count, mismatch_count, updated_at)
+		VALUES ($1, $2::vector, $3, $4, now())
+		ON CONFLICT (user_id) DO UPDATE
+		SET embedding = $2::vector, like_count = $3, mismatch_count = $4, updated_at = now()
+	`, userID, embeddingLiteral(emb), likes, mismatches)
+	return err
+}
+
+// DeletePreference 偏好不再可用时清除。
+func (r *Repository) DeletePreference(ctx context.Context, userID int64) error {
+	_, err := r.db.Exec(ctx, `DELETE FROM user_match_preferences WHERE user_id = $1`, userID)
+	return err
+}
+
+type PreferenceRow struct {
+	Embedding   string
+	LikeCount   int
+	MismatchCount int
+}
+
+func (r *Repository) GetPreference(ctx context.Context, userID int64) (*PreferenceRow, error) {
+	var p PreferenceRow
+	err := r.db.QueryRow(ctx, `
+		SELECT embedding::text, like_count, mismatch_count
+		FROM user_match_preferences WHERE user_id = $1
+	`, userID).Scan(&p.Embedding, &p.LikeCount, &p.MismatchCount)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &p, nil
 }
 
 // SaveFeedback 聊后反馈（每人每匹配一条，可覆盖）。

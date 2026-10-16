@@ -16,12 +16,16 @@ const (
 )
 
 // ScoreBreakdown 各分项得分，存入 matches.score_detail 供调参复盘。
+// PrefCos/PrefWeight 为偏好协同项（样本足够时才非零）：
+// total = (1-prefWeight) × 五项基础分 + prefWeight × PrefCos。
 type ScoreBreakdown struct {
 	Cosine     float64  `json:"cosine"`
 	Intent     float64  `json:"intent"`
 	Hours      float64  `json:"hours"`
 	Geo        float64  `json:"geo"`
 	Complement float64  `json:"complement"`
+	PrefCos    float64  `json:"pref_cos,omitempty"`
+	PrefWeight float64  `json:"pref_weight,omitempty"`
 	Highlights []string `json:"highlights"`
 }
 

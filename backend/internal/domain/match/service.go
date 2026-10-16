@@ -144,6 +144,7 @@ func (s *Service) Suggestions(ctx context.Context, userID int64) (SuggestionsVie
 }
 
 // generateIfNeeded 我持有 < maxSuggestions 条提示时，从候选中打分补足。
+// 偏好信号：样本 ≥ 3 时启用，权重随样本量爬坡（最多 0.15，基础权重等比收缩）。
 func (s *Service) generateIfNeeded(ctx context.Context, userID int64) error {
 	existing, err := s.repo.MySuggested(ctx, userID)
 	if err != nil {
@@ -167,6 +168,17 @@ func (s *Service) generateIfNeeded(ctx context.Context, userID int64) error {
 	meCand := toCandidate(*me, myBasic)
 	myProf := parseMatchProfile(me.Profile)
 	myVec := parseEmbedding(me.Embedding)
+
+	// 偏好信号（可选）：有可用的偏好向量才参与打分
+	prefWeight := 0.0
+	var prefVec []float64
+	if pref, err := s.repo.GetPreference(ctx, userID); err != nil {
+		return err
+	} else if pref != nil {
+		prefVec = parseEmbedding(pref.Embedding)
+		prefWeight = prefWeightFor(pref.LikeCount, pref.MismatchCount)
+	}
+	baseWeight := 1 - prefWeight
 
 	candidates, err := s.repo.Candidates(ctx, userID)
 	if err != nil {
@@ -195,15 +207,22 @@ func (s *Service) generateIfNeeded(ctx context.Context, userID int64) error {
 			continue
 		}
 		candProf := parseMatchProfile(cand.Profile)
+		candEmb := parseEmbedding(cand.Embedding)
 		detail := ScoreBreakdown{
-			Cosine:     cosine(myVec, parseEmbedding(cand.Embedding)),
+			Cosine:     cosine(myVec, candEmb),
 			Intent:     intentScore(myProf.Intent, candProf.Intent),
 			Hours:      hoursOverlap(myProf.ActiveHours, candProf.ActiveHours),
 			Geo:        geoScore(myBasic.City, basic.City),
 			Complement: complementScore(myProf.Initiative, candProf.Initiative),
 			Highlights: buildHighlights(myProf, candProf, myBasic.City, basic.City),
 		}
-		pool = append(pool, scored{cand: cand, total: detail.Total(), detail: detail})
+		// 偏好项：候选人与"我喜欢过的人"的相似度
+		if prefWeight > 0 && len(prefVec) > 0 {
+			detail.PrefCos = cosine(prefVec, candEmb)
+			detail.PrefWeight = prefWeight
+		}
+		total := baseWeight*detail.Total() + prefWeight*detail.PrefCos
+		pool = append(pool, scored{cand: cand, total: total, detail: detail})
 	}
 
 	sort.Slice(pool, func(i, j int) bool { return pool[i].total > pool[j].total })
@@ -221,7 +240,7 @@ func (s *Service) generateIfNeeded(ctx context.Context, userID int64) error {
 	return nil
 }
 
-// SaveFeedback 聊后反馈：匹配质量数据闭环，后续用于修正打分权重。
+// SaveFeedback 聊后反馈：匹配质量数据闭环——落库后立即重算反馈者的偏好向量。
 func (s *Service) SaveFeedback(ctx context.Context, userID, matchID int64, direction, note string) error {
 	if direction != "like" && direction != "mismatch" {
 		return errInvalidOptIn
@@ -233,7 +252,24 @@ func (s *Service) SaveFeedback(ctx context.Context, userID, matchID int64, direc
 	if !ok {
 		return ErrNotParticipant
 	}
-	return s.repo.SaveFeedback(ctx, matchID, userID, direction, note)
+	if err := s.repo.SaveFeedback(ctx, matchID, userID, direction, note); err != nil {
+		return err
+	}
+	return s.refreshPreference(ctx, userID)
+}
+
+// refreshPreference 重算用户偏好向量：like 加权 +1、mismatch -0.5，
+// 净权重为正才保留（全是不喜欢不定义"喜欢什么"）。
+func (s *Service) refreshPreference(ctx context.Context, userID int64) error {
+	entries, err := s.repo.FeedbackWithPartnerEmbeddings(ctx, userID)
+	if err != nil {
+		return err
+	}
+	vec, likes, mismatches, ready := PreferenceVector(entries)
+	if !ready {
+		return s.repo.DeletePreference(ctx, userID)
+	}
+	return s.repo.UpsertPreference(ctx, userID, vec, likes, mismatches)
 }
 
 // CloseByUser 供 consent 域通过接口调用：撤回授权时关闭匹配。
