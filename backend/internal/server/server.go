@@ -104,6 +104,7 @@ func (s *Server) registerRoutes() {
 	chatRepo := chat.NewRepository(s.db)
 	chatSvc := chat.NewService(chatRepo, provider, nil) // style 尚未创建，下面回填风格对齐
 	s.chatSvc = chatSvc
+	chatSvc.SetNotifier(chatNotifier{hub: hub})
 	chatHandler := chat.NewHandler(chatSvc)
 	chatHandler.RegisterRoutes(authed)
 
@@ -194,6 +195,7 @@ func (a styleHintProvider) Hint(ctx context.Context, userID int64) (chat.StyleHi
 		EmotionalStyle struct {
 			Tone string `json:"tone"`
 		} `json:"emotional_style"`
+		ActiveHours []string `json:"active_hours"`
 	}
 	if json.Unmarshal(raw, &p) != nil {
 		return chat.StyleHint{}, false, nil // 画像解析失败时降级为基础人格
@@ -204,6 +206,7 @@ func (a styleHintProvider) Hint(ctx context.Context, userID int64) (chat.StyleHi
 		EmojiUsage:  p.CommunicationStyle.EmojiUsage,
 		Tone:        p.EmotionalStyle.Tone,
 		Pace:        p.CommunicationStyle.Pace,
+		ActiveHours: p.ActiveHours,
 		Confidence:  confidence,
 	}, true, nil
 }
@@ -213,6 +216,13 @@ type hubAdapter struct{ hub *realtime.Hub }
 
 func (a hubAdapter) PublishDirectMessage(_ context.Context, matchID int64, msg contact.DirectMessage, toUsers ...int64) {
 	a.hub.Broadcast(toUsers, realtime.Frame{Type: "dm", MatchID: matchID, Message: msg})
+}
+
+// chatNotifier 把 realtime.Hub 适配为 chat.AINotifier（主动消息实时推送）。
+type chatNotifier struct{ hub *realtime.Hub }
+
+func (a chatNotifier) NotifyAI(_ context.Context, userID, conversationID int64, msg chat.MessageDTO) {
+	a.hub.Broadcast([]int64{userID}, realtime.Frame{Type: "chat_ai", Message: msg})
 }
 
 // authNamer 把 auth.Service 适配为 contact.UserDirectory。
@@ -230,11 +240,16 @@ func (d *deferredConsent) Record(ctx context.Context, userID int64, targetType s
 	return d.svc.Record(ctx, userID, targetType, targetID, granted)
 }
 
-// Start 启动后台任务（风格分析 + 长期记忆两个 worker）。ctx 结束时退出。
+// Start 启动后台任务（风格分析 / 长期记忆 / 主动开话三个 worker）。ctx 结束时退出。
 func (s *Server) Start(ctx context.Context) {
 	interval := time.Duration(s.cfg.WorkerIntervalSec) * time.Second
 	go style.NewWorker(s.styleSvc, interval).Run(ctx)
 	go chat.NewMemoryWorker(s.chatSvc, interval).Run(ctx)
+	go chat.NewProactiveWorker(s.chatSvc, s.proactiveInterval()).Run(ctx)
+}
+
+func (s *Server) proactiveInterval() time.Duration {
+	return time.Duration(s.cfg.ProactiveIntervalSec) * time.Second
 }
 
 func (s *Server) Run() error {

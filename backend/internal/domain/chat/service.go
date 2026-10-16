@@ -24,6 +24,7 @@ const (
 	memoryMaxChars = 800
 )
 
+
 // memorySystemPrompt 记忆整理器：维护跨会话的长期记忆摘要。
 const memorySystemPrompt = `你是记忆整理器。根据对话记录，维护一份关于用户的长期记忆摘要，供 AI 陪伴者下次对话时自然使用。
 
@@ -82,11 +83,12 @@ const personaPrompt = personaBase + mirrorRule
 
 // StyleHint 风格对齐提示：来自用户风格卡（由装配层从 style 域适配而来）。
 type StyleHint struct {
-	ReplyLength string // short|short_to_medium|medium|long
-	Formality   string // formal|neutral|casual
-	EmojiUsage  string // none|low|medium|high
-	Tone        string // positive|calm|melancholic
-	Pace        string // fast|medium|slow
+	ReplyLength string   // short|short_to_medium|medium|long
+	Formality   string   // formal|neutral|casual
+	EmojiUsage  string   // none|low|medium|high
+	Tone        string   // positive|calm|melancholic
+	Pace        string   // fast|medium|slow
+	ActiveHours []string // 用户活跃时段（主动开话的时段边界）
 	Confidence  float64
 }
 
@@ -104,6 +106,7 @@ type Service struct {
 	repo      *Repository
 	completer ChatCompleter
 	hints     StyleHintProvider // 可为 nil（无画像时纯基础人格）
+	notifier  AINotifier        // 可为 nil（主动消息不实时推送）
 }
 
 func NewService(repo *Repository, completer ChatCompleter, hints StyleHintProvider) *Service {

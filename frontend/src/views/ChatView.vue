@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, ref, nextTick } from 'vue'
+import { onMounted, onUnmounted, ref, nextTick } from 'vue'
 import { loadChatHistory, sendChatMessage } from '../api.js'
 
 const messages = ref([]) // { id, sender, is_ai, content, created_at }
@@ -7,6 +7,8 @@ const draft = ref('')
 const error = ref('')
 const sending = ref(false)
 const bottom = ref(null)
+let ws = null
+let wsRetry = null
 
 const greeting = { id: -1, is_ai: true, content: '我在。今晚想聊点什么，或者什么都不聊也行。' }
 
@@ -21,7 +23,34 @@ onMounted(async () => {
     error.value = '聊天记录加载失败，先聊聊看'
   }
   scrollBottom()
+  connectWS()
 })
+
+onUnmounted(() => {
+  clearTimeout(wsRetry)
+  if (ws) { ws.onclose = null; ws.close() }
+})
+
+// WebSocket：接收 AI 主动开话（用户发消息仍走 REST）
+function connectWS() {
+  const token = localStorage.getItem('tongpin_token')
+  if (!token) return
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws'
+  ws = new WebSocket(`${proto}://${location.host}/api/v1/ws?token=${encodeURIComponent(token)}`)
+  ws.onmessage = (ev) => {
+    try {
+      const frame = JSON.parse(ev.data)
+      if (frame.type === 'chat_ai' && frame.message) {
+        const m = frame.message
+        if (!messages.value.some(x => x.id === m.id)) {
+          messages.value.push(m)
+          scrollBottom()
+        }
+      }
+    } catch { /* 忽略坏帧 */ }
+  }
+  ws.onclose = () => { wsRetry = setTimeout(connectWS, 3000) }
+}
 
 async function send() {
   const content = draft.value.trim()

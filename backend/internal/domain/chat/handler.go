@@ -22,6 +22,32 @@ func NewHandler(svc *Service) *Handler {
 func (h *Handler) RegisterRoutes(rg gin.IRouter) {
 	rg.POST("/chat/messages", h.send)
 	rg.GET("/chat/messages", h.history)
+	rg.GET("/chat/proactive", h.proactiveState)
+	rg.PUT("/chat/proactive", h.setProactive)
+}
+
+func (h *Handler) proactiveState(c *gin.Context) {
+	enabled, err := h.svc.GetProactiveEnabled(c.Request.Context(), middleware.UserIDFrom(c))
+	if err != nil {
+		httpx.FailInternal(c, "查询设置失败")
+		return
+	}
+	httpx.OK(c, gin.H{"enabled": enabled})
+}
+
+func (h *Handler) setProactive(c *gin.Context) {
+	var req struct {
+		Enabled *bool `json:"enabled" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || req.Enabled == nil {
+		httpx.FailBusiness(c, httpx.CodeInvalidParam, "参数错误")
+		return
+	}
+	if err := h.svc.SetProactiveEnabled(c.Request.Context(), middleware.UserIDFrom(c), *req.Enabled); err != nil {
+		httpx.FailInternal(c, "保存设置失败")
+		return
+	}
+	httpx.OK(c, nil)
 }
 
 func (h *Handler) send(c *gin.Context) {

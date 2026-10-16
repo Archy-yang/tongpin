@@ -10,13 +10,14 @@ import (
 )
 
 type Config struct {
-	Env                string // dev | prod
-	Port               string
-	DatabaseURL        string
-	JWTSecret          string
-	MatchPoolThreshold int // 契合提示灰度阈值：池内活跃用户低于此值不开匹配（本地测试调低）
-	WorkerIntervalSec  int // 风格分析 worker 轮询间隔（秒），默认 300
-	LLM                LLMConfig
+	Env                  string // dev | prod
+	Port                 string
+	DatabaseURL          string
+	JWTSecret            string
+	MatchPoolThreshold   int // 契合提示灰度阈值：池内活跃用户低于此值不开匹配（本地测试调低）
+	WorkerIntervalSec    int // 风格/记忆 worker 轮询间隔（秒），默认 300
+	ProactiveIntervalSec int // 主动开话 worker 轮询间隔（秒），默认 900
+	LLM                  LLMConfig
 }
 
 type LLMConfig struct {
@@ -34,12 +35,13 @@ func Load() *Config {
 		}
 	}
 	return &Config{
-		Env:                getenv("APP_ENV", "dev"),
-		Port:               getenv("APP_PORT", "8080"),
-		DatabaseURL:        getenv("DATABASE_URL", "postgres://tongpin:tongpin@localhost:5432/tongpin?sslmode=disable"),
-		JWTSecret:          getenv("JWT_SECRET", "dev-secret-change-me"),
-		MatchPoolThreshold: threshold,
-		WorkerIntervalSec:  workerInterval(),
+		Env:                  getenv("APP_ENV", "dev"),
+		Port:                 getenv("APP_PORT", "8080"),
+		DatabaseURL:          getenv("DATABASE_URL", "postgres://tongpin:tongpin@localhost:15432/tongpin?sslmode=disable"),
+		JWTSecret:            getenv("JWT_SECRET", "dev-secret-change-me"),
+		MatchPoolThreshold:   threshold,
+		WorkerIntervalSec:    workerInterval(),
+		ProactiveIntervalSec: proactiveInterval(),
 		LLM: LLMConfig{
 			BaseURL: getenv("LLM_BASE_URL", "https://api.deepseek.com/v1"),
 			APIKey:  getenv("LLM_API_KEY", ""),
@@ -62,6 +64,15 @@ func workerInterval() int {
 		}
 	}
 	return 300
+}
+
+func proactiveInterval() int {
+	if v := os.Getenv("PROACTIVE_INTERVAL"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return 900
 }
 
 // loadDotEnv 加载 .env（当前目录或上级目录），已有环境变量优先。

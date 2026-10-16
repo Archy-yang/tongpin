@@ -2,10 +2,11 @@
 import { onMounted, ref } from 'vue'
 import {
   updateBasics, bindEmail, emailLogin, changePassword,
-  requestResetCode, confirmReset, logout,
+  requestResetCode, confirmReset, logout, getProactive, setProactive,
 } from '../api.js'
 
 const me = ref(null) // { id, nickname, email }
+const proactive = ref(true) // AI 主动开话开关
 
 // 基础设置
 const nickname = ref('')
@@ -37,8 +38,20 @@ onMounted(async () => {
       nickname.value = json.data.nickname
       panel.value = json.data.email ? 'password' : 'bind'
     }
+    const p = await getProactive()
+    proactive.value = p.enabled
   } catch { /* 未登录也展示表单 */ }
 })
+
+async function toggleProactive() {
+  proactive.value = !proactive.value
+  try {
+    await setProactive(proactive.value)
+  } catch (e) {
+    proactive.value = !proactive.value // 失败回滚
+    err.value = e.message
+  }
+}
 
 async function saveBasics() {
   savingBasics.value = true
@@ -204,6 +217,10 @@ async function reload() {
         <button class="primary" :disabled="savingBasics">{{ savingBasics ? '保存中…' : '保存' }}</button>
         <p v-if="savedBasics" class="ok" role="status">已保存</p>
       </form>
+      <label class="proactive">
+        <input type="checkbox" :checked="proactive" @change="toggleProactive" />
+        <span>允许 AI 在你的活跃时段主动找你（每天最多一次，可随时关闭）</span>
+      </label>
       <p class="privacy">这里填的信息只用于匹配筛选。你不需要头像，也不需要真实姓名。</p>
     </section>
   </main>
@@ -245,4 +262,11 @@ async function reload() {
 .ok { color: var(--amber); font-size: 14px; margin: 10px 0 0; }
 .error { color: #d98f6a; font-size: 14px; margin: 10px 0 0; }
 .privacy { margin: 14px 0 0; color: var(--mist); font-size: 13px; line-height: 1.7; }
+.proactive {
+  display: flex; align-items: flex-start; gap: 8px;
+  margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line);
+  cursor: pointer;
+}
+.proactive input { accent-color: var(--amber); margin-top: 3px; }
+.proactive span { color: var(--mist); font-size: 13.5px; line-height: 1.6; }
 </style>

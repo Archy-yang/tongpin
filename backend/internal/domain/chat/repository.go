@@ -94,6 +94,57 @@ func (r *Repository) SaveMemory(ctx context.Context, conversationID int64, summa
 	return err
 }
 
+// ---- AI 主动开话 ----
+
+// ProactiveCandidates 主动消息候选：允许主动、今天还没发过、有记忆。
+func (r *Repository) ProactiveCandidates(ctx context.Context) ([]Conversation, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT id, user_id, COALESCE(memory_summary, '')
+		FROM conversations
+		WHERE proactive_enabled
+		  AND (last_proactive_date IS NULL OR last_proactive_date < CURRENT_DATE)
+		  AND memory_summary IS NOT NULL AND memory_summary <> ''
+		ORDER BY id
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []Conversation
+	for rows.Next() {
+		var c Conversation
+		if err := rows.Scan(&c.ID, &c.UserID, &c.MemorySummary); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// MarkProactiveSent 记录今天已发送（每天最多一条的边界）。
+func (r *Repository) MarkProactiveSent(ctx context.Context, conversationID int64) error {
+	_, err := r.db.Exec(ctx,
+		`UPDATE conversations SET last_proactive_date = CURRENT_DATE WHERE id = $1`, conversationID)
+	return err
+}
+
+func (r *Repository) SetProactiveEnabled(ctx context.Context, userID int64, enabled bool) error {
+	_, err := r.db.Exec(ctx,
+		`UPDATE conversations SET proactive_enabled = $2 WHERE user_id = $1`, userID, enabled)
+	return err
+}
+
+func (r *Repository) GetProactiveEnabled(ctx context.Context, userID int64) (bool, error) {
+	var enabled bool
+	err := r.db.QueryRow(ctx,
+		`SELECT proactive_enabled FROM conversations WHERE user_id = $1`, userID).Scan(&enabled)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return true, nil // 默认允许
+	}
+	return enabled, err
+}
+
 func (r *Repository) InsertMessage(ctx context.Context, conversationID int64, sender, content string) (Message, error) {
 	const q = `
 		INSERT INTO messages (conversation_id, sender, content)

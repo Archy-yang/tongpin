@@ -74,6 +74,14 @@ export async function sendChatMessage(content) {
   return data // { user_message, ai_message }
 }
 
+export async function getProactive() {
+  return request('GET', '/chat/proactive')
+}
+
+export async function setProactive(enabled) {
+  return request('PUT', '/chat/proactive', { enabled })
+}
+
 export async function loadStyleProfile() {
   return request('GET', '/style-profile')
 }
