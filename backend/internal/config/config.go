@@ -18,7 +18,15 @@ type Config struct {
 	WorkerIntervalSec    int // 风格/记忆 worker 轮询间隔（秒），默认 300
 	ProactiveIntervalSec int // 主动开话 worker 轮询间隔（秒），默认 900
 	FreeDailyMsgQuota    int // 免费用户每日 AI 聊天条数（0 或负数 = 关闭限制），默认 10
+	Stripe               StripeConfig
 	LLM                  LLMConfig
+}
+
+type StripeConfig struct {
+	SecretKey     string // sk_test_... 留空 = 支付未开放
+	WebhookSecret string // whsec_...
+	PriceMonthly  string // price_... 会员月度价格 ID
+	PublicBaseURL string // 成功/取消跳转的网页基地址
 }
 
 type LLMConfig struct {
@@ -44,6 +52,12 @@ func Load() *Config {
 		WorkerIntervalSec:    workerInterval(),
 		ProactiveIntervalSec: proactiveInterval(),
 		FreeDailyMsgQuota:    freeDailyQuota(),
+		Stripe: StripeConfig{
+			SecretKey:     getenv("STRIPE_SECRET_KEY", ""),
+			WebhookSecret: getenv("STRIPE_WEBHOOK_SECRET", ""),
+			PriceMonthly:  getenv("STRIPE_PRICE_MONTHLY", ""),
+			PublicBaseURL: getenv("PUBLIC_BASE_URL", "http://localhost:5174"),
+		},
 		LLM: LLMConfig{
 			BaseURL: getenv("LLM_BASE_URL", "https://api.deepseek.com/v1"),
 			APIKey:  getenv("LLM_API_KEY", ""),

@@ -103,12 +103,19 @@ type ChatCompleter interface {
 	Chat(ctx context.Context, req llm.ChatRequest) (string, error)
 }
 
+// EntitlementProvider 会员权益（可 nil——未接支付时全部走免费额度）。
+// chat 不感知 billing 域，装配层把 billing.Service 适配进来。
+type EntitlementProvider interface {
+	IsEntitled(ctx context.Context, userID int64) (bool, error)
+}
+
 type Service struct {
 	repo      *Repository
 	completer ChatCompleter
 	hints     StyleHintProvider // 可为 nil（无画像时纯基础人格）
 	notifier  AINotifier        // 可为 nil（主动消息不实时推送）
 	quota     int               // 免费用户每日聊天条数；<=0 表示关闭额度限制
+	member    EntitlementProvider // 可为 nil（支付未接入时全部走免费额度）
 }
 
 // ErrQuotaExceeded 当日免费额度用完（handler 据此返回 3002，引导升级会员）。
@@ -121,6 +128,11 @@ func NewService(repo *Repository, completer ChatCompleter, hints StyleHintProvid
 // SetFreeQuotaDefault 装配期注入全局默认免费额度（用户级 free_quota 覆盖它，见 checkQuota）。
 func (s *Service) SetFreeQuotaDefault(n int) {
 	s.quota = n
+}
+
+// SetEntitlements 装配期回填会员权益依赖（billing 域就绪后调用，同 SetStyleHints 模式）。
+func (s *Service) SetEntitlements(e EntitlementProvider) {
+	s.member = e
 }
 
 // SetStyleHints 装配期回填风格对齐依赖（chat 需要 style 的画像，style 又依赖 chat 的
@@ -220,6 +232,12 @@ func (s *Service) SendMessage(ctx context.Context, userID int64, content string)
 func (s *Service) checkQuota(ctx context.Context, userID int64) error {
 	if s.quota <= 0 {
 		return nil // 全局关闭（测试模式 / 显式不限制）
+	}
+	// 会员不限量。权益查询失败时忽略（宁可误放不可误拦），继续走额度检查。
+	if s.member != nil {
+		if ok, err := s.member.IsEntitled(ctx, userID); err == nil && ok {
+			return nil
+		}
 	}
 	limit, err := s.repo.UserQuota(ctx, userID)
 	if err != nil {

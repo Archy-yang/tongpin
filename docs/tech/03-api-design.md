@@ -121,6 +121,26 @@ POST /api/v1/blocks
   # 拉黑后：互相不出现在契合提示，无法互发消息
 ```
 
+## 订阅与支付（billing）
+
+```
+POST /api/v1/billing/checkout          # 登录态；建 Stripe Checkout 会话
+  → { "url": "https://checkout.stripe.com/..." }   # 前端整页跳转
+  # 未配置支付密钥时返回 3001「支付暂未开放」
+
+GET  /api/v1/billing/subscription      # 登录态；会员卡状态
+  → { "active": true, "plan": "member_monthly", "status": "active",
+      "current_period_end": "2026-11-15T19:44:16+08:00" }
+
+POST /api/v1/billing/webhook/:provider # 公开路由：验签即鉴权（Stripe-Signature HMAC-SHA256）
+  # 事件归一化为 subscription_upserted / subscription_canceled，
+  # billing_events 表幂等去重（三方会重投）；处理失败返回 500 让三方重试
+```
+
+- 分层：billing 域只认 `PaymentProvider` 接口；渠道适配器在 `internal/payments/`（stripe 已实现，apple/google 预留），装配层按 `STRIPE_*` 环境变量注册
+- 会员权益经 `chat.EntitlementProvider` 消费方接口接入聊天额度（会员不限量），chat 不感知 billing
+- 环境变量：`STRIPE_SECRET_KEY`、`STRIPE_WEBHOOK_SECRET`、`STRIPE_PRICE_MONTHLY`、`PUBLIC_BASE_URL`
+
 ## WebSocket 实时推送
 
 ```

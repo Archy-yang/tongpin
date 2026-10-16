@@ -162,6 +162,17 @@ export async function sendFeedback(matchId, direction) {
   return request('POST', '/match/feedback', { match_id: matchId, direction })
 }
 
+// ---- 订阅与支付（billing）----
+
+export async function getSubscription() {
+  return request('GET', '/billing/subscription') // { active, plan, current_period_end }
+}
+
+export async function startCheckout() {
+  const data = await request('POST', '/billing/checkout')
+  return data.url
+}
+
 async function me(token) {
   const data = await request('GET', '/me', null, token)
   return data

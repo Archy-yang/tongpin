@@ -12,6 +12,7 @@ import (
 
 	"github.com/Archy-yang/tongpin/backend/internal/config"
 	"github.com/Archy-yang/tongpin/backend/internal/domain/auth"
+	"github.com/Archy-yang/tongpin/backend/internal/domain/billing"
 	"github.com/Archy-yang/tongpin/backend/internal/domain/chat"
 	"github.com/Archy-yang/tongpin/backend/internal/domain/consent"
 	"github.com/Archy-yang/tongpin/backend/internal/domain/contact"
@@ -20,6 +21,7 @@ import (
 	"github.com/Archy-yang/tongpin/backend/internal/domain/safety"
 	"github.com/Archy-yang/tongpin/backend/internal/domain/style"
 	"github.com/Archy-yang/tongpin/backend/internal/llm"
+	"github.com/Archy-yang/tongpin/backend/internal/payments/stripe"
 	"github.com/Archy-yang/tongpin/backend/internal/platform/jwt"
 	"github.com/Archy-yang/tongpin/backend/internal/platform/mailer"
 	"github.com/Archy-yang/tongpin/backend/internal/platform/middleware"
@@ -159,6 +161,25 @@ func (s *Server) registerRoutes() {
 		llmCompleter{p: provider},
 	)
 	icebreak.NewHandler(icebreakSvc).RegisterRoutes(authed)
+
+	// billing 域：订阅与支付（渠道适配器见 internal/payments，按配置注册）
+	// 只配了 webhook 密钥也能注册——收银台在 CreateCheckout 内部自查密钥，
+	// 而 webhook 接收（如测试/灰度先行）只需要验签密钥。
+	billingSvc := billing.NewService(billing.NewRepository(s.db))
+	if s.cfg.Stripe.SecretKey != "" || s.cfg.Stripe.WebhookSecret != "" {
+		billingSvc.Register(stripe.New(stripe.Config{
+			SecretKey:     s.cfg.Stripe.SecretKey,
+			WebhookSecret: s.cfg.Stripe.WebhookSecret,
+			PriceID:       s.cfg.Stripe.PriceMonthly,
+			SuccessURL:    s.cfg.Stripe.PublicBaseURL + "/me?billing=success",
+			CancelURL:     s.cfg.Stripe.PublicBaseURL + "/me?billing=cancel",
+		}))
+	}
+	billing.NewHandler(billingSvc).RegisterRoutes(authed)
+	billing.NewHandler(billingSvc).RegisterWebhookRoutes(api) // 公开路由：验签即鉴权
+
+	// 会员权益接入 chat 额度（chat 不感知 billing，经消费方接口回填）
+	chatSvc.SetEntitlements(billingEntitlements{billing: billingSvc})
 }
 
 // ---- 跨域适配器（依赖接线只出现在装配层）----
@@ -231,6 +252,13 @@ type authNamer struct{ auth *auth.Service }
 
 func (a authNamer) Nickname(ctx context.Context, userID int64) (string, error) {
 	return a.auth.Nickname(ctx, userID)
+}
+
+// billingEntitlements 把 billing.Service 适配为 chat.EntitlementProvider（会员不限量）。
+type billingEntitlements struct{ billing *billing.Service }
+
+func (b billingEntitlements) IsEntitled(ctx context.Context, userID int64) (bool, error) {
+	return b.billing.Entitlement(ctx, userID)
 }
 
 // deferredConsent 把 consent.Service 适配为 match.ConsentRecorder / contact.ConsentRecorder，

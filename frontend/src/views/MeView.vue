@@ -3,10 +3,12 @@ import { onMounted, ref } from 'vue'
 import {
   updateBasics, bindEmail, emailLogin, changePassword,
   requestResetCode, confirmReset, logout, getProactive, setProactive,
+  getSubscription, startCheckout,
 } from '../api.js'
 
 const me = ref(null) // { id, nickname, email }
 const proactive = ref(true) // AI 主动开话开关
+const member = ref(null) // { active, plan, current_period_end }
 
 // 基础设置
 const nickname = ref('')
@@ -41,7 +43,21 @@ onMounted(async () => {
     const p = await getProactive()
     proactive.value = p.enabled
   } catch { /* 未登录也展示表单 */ }
+  try {
+    member.value = await getSubscription()
+  } catch { /* 支付未接入时保持 null */ }
 })
+
+async function upgrade() {
+  err.value = ''
+  msg.value = ''
+  try {
+    const url = await startCheckout()
+    location.href = url // 跳 Stripe 托管收银台
+  } catch (e) {
+    err.value = e.message // 如「支付暂未开放，敬请期待」
+  }
+}
 
 async function toggleProactive() {
   proactive.value = !proactive.value
@@ -115,6 +131,11 @@ function doLogout() {
   location.href = '/' // 回到匿名新账号
 }
 
+function fmtDate(iso) {
+  if (!iso) return ''
+  return new Date(iso).toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' })
+}
+
 async function reload() {
   const res = await fetch('/api/v1/me', {
     headers: { Authorization: `Bearer ${localStorage.getItem('tongpin_token')}` },
@@ -185,6 +206,19 @@ async function reload() {
 
       <p v-if="msg" class="ok" role="status">{{ msg }}</p>
       <p v-if="err" class="error" role="alert">{{ err }}</p>
+    </section>
+
+    <!-- 会员 -->
+    <section class="card">
+      <h2>会员</h2>
+      <p v-if="member?.active" class="account-line">
+        同频会员 · 至 {{ fmtDate(member.current_period_end) }}
+        <span class="tag">生效中</span>
+      </p>
+      <template v-else>
+        <p class="hint">会员畅聊不限量：AI 聊天额度大幅提升、记忆更深、主动开话。</p>
+        <button class="primary" @click="upgrade">升级会员 · ¥15/月</button>
+      </template>
     </section>
 
     <!-- 基础设置 -->

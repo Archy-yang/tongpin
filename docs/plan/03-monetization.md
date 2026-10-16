@@ -66,7 +66,12 @@ Netflix 模式 = 订阅在网页完成、App 只消费已登录权益，全渠�
 1. **免费额度实现**（✅ 已完成）：`FREE_DAILY_MSG_QUOTA`（默认 10，0/负数关闭限制）；
    用户级 `users.free_quota` 覆盖（0=用默认，负数=不限额，作为未来会员占位）；超额返回 3002；
 2. 埋点：每人每日 LLM 调用/token、次日与 7 日留存、暖场发起率——用于校准上表；
-3. 支付主体：海外 Stripe（个人可开）；国内微信/支付宝商户号需营业执照；
+3. 支付对接（✅ Stripe 已完成，含 webhook 状态机与幂等；Apple/Google 适配器接口已预留，
+   等原生 App 后在 `internal/payments/` 填实现）：密钥未配置时全链路降级为「支付暂未开放」；
+   上线时配置 `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` / `STRIPE_PRICE_MONTHLY` /
+   `PUBLIC_BASE_URL` 四个环境变量，webhook 本地调试用
+   `stripe listen --forward-to localhost:18080/api/v1/billing/webhook/stripe`；
+   国内微信/支付宝商户号需营业执照，暂缓；
 4. 可选改造：`LLM_MODEL_PREMIUM` 双档模型（聊天走 flash 档，暖场/风格分析走 premium 档）。
 
 ## 7. 曾评估并放弃的方案（备忘）
