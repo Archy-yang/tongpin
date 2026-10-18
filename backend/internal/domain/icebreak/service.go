@@ -5,6 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"log"
+
+	"github.com/Archy-yang/tongpin/backend/internal/analytics"
+	"github.com/Archy-yang/tongpin/backend/internal/llm"
 )
 
 var (
@@ -45,7 +48,11 @@ type Service struct {
 	consents ConsentRecorder
 	profiles ProfileSource
 	completer Completer
+	rec      *analytics.Recorder // 可为 nil（不埋点）
 }
+
+// SetRecorder 装配期注入埋点。
+func (s *Service) SetRecorder(r *analytics.Recorder) { s.rec = r }
 
 func NewService(repo *Repository, match MatchGateway, consents ConsentRecorder, profiles ProfileSource, completer Completer) *Service {
 	return &Service{repo: repo, match: match, consents: consents, profiles: profiles, completer: completer}
@@ -55,6 +62,9 @@ func NewService(repo *Repository, match MatchGateway, consents ConsentRecorder, 
 func (s *Service) Create(ctx context.Context, userID, matchID int64) (Session, error) {
 	if ok, err := s.match.ParticipantOf(ctx, matchID, userID); err != nil || !ok {
 		return Session{}, ErrNotParticipant
+	}
+	if s.rec != nil {
+		s.rec.Record(ctx, userID, analytics.EvIcebreakCreate, nil)
 	}
 	status, err := s.match.StatusOf(ctx, matchID)
 	if err != nil {
@@ -154,10 +164,12 @@ func (s *Service) generate(ctx context.Context, sess *Session) {
 	for round := 0; round < agentRounds; round++ {
 		for _, side := range []string{"a", "b"} {
 			profile := profileB
+			attributed := sess.ToUser // b 代理的 token 归属对方
 			if side == "a" {
 				profile = profileA
+				attributed = sess.FromUser
 			}
-			text, err := s.completer.Complete(ctx,
+			text, err := s.completer.Complete(llm.WithUser(ctx, attributed),
 				agentSystemPrompt(string(profile), side),
 				buildAgentTurn(side, flip(side), transcript))
 			if err != nil {
@@ -169,7 +181,7 @@ func (s *Service) generate(ctx context.Context, sess *Session) {
 		}
 	}
 
-	raw, err := s.completer.Complete(ctx, summarySystemPrompt, buildSummaryUser(profileA, profileB, transcript))
+	raw, err := s.completer.Complete(llm.WithUser(ctx, sess.FromUser), summarySystemPrompt, buildSummaryUser(profileA, profileB, transcript))
 	if err != nil {
 		log.Printf("[icebreak] session %d: summarize: %v", sess.ID, err)
 		_ = s.repo.UpdateStatus(ctx, sess.ID, StatusFailed)

@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+
+	"github.com/Archy-yang/tongpin/backend/internal/llm"
 )
 
 // Completer 是本域对 LLM 的最小依赖：一次系统提示 + 一次用户提示的补全调用。
@@ -56,7 +58,7 @@ func (s *Service) AnalyzeUser(ctx context.Context, userID int64) error {
 		}
 	}
 
-	raw, err := s.completer.Complete(ctx, analysisSystemPrompt, buildUserPrompt(prevProfile, msgs))
+	raw, err := s.completer.Complete(llm.WithUser(ctx, userID), analysisSystemPrompt, buildUserPrompt(prevProfile, msgs))
 	if err != nil {
 		return fmt.Errorf("llm analyze: %w", err)
 	}

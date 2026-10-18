@@ -40,7 +40,11 @@ type OpenAICompat struct {
 	apiKey  string
 	model   string
 	client  *http.Client
+	hook    UsageHook // 可为 nil
 }
+
+// SetUsageHook 装配期注入用量回调（所有 LLM 调用的唯一咽喉，一处埋点全覆盖）。
+func (p *OpenAICompat) SetUsageHook(h UsageHook) { p.hook = h }
 
 func NewOpenAICompat(baseURL, apiKey, model string) *OpenAICompat {
 	if model == "" {
@@ -65,9 +69,32 @@ type chatCompletionResponse struct {
 	Choices []struct {
 		Message Message `json:"message"`
 	} `json:"choices"`
+	Usage *Usage `json:"usage,omitempty"`
 	Error *struct {
 		Message string `json:"message"`
 	} `json:"error,omitempty"`
+}
+
+// Usage 一次调用的真实 token 用量（OpenAI 兼容协议自带）。
+type Usage struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+}
+
+// UsageHook 每次调用成功后收到真实用量；由装配层注入（通常接入 analytics）。
+type UsageHook func(ctx context.Context, usage Usage)
+
+type ctxKey struct{}
+
+// WithUser 把调用归属的用户放进 ctx（用于用量归属；worker 侧同样适用）。
+func WithUser(ctx context.Context, userID int64) context.Context {
+	return context.WithValue(ctx, ctxKey{}, userID)
+}
+
+// UserIDFrom 取 ctx 中的归属用户，没有时返回 0（系统级调用）。
+func UserIDFrom(ctx context.Context) int64 {
+	id, _ := ctx.Value(ctxKey{}).(int64)
+	return id
 }
 
 func (p *OpenAICompat) Chat(ctx context.Context, req ChatRequest) (string, error) {
@@ -110,6 +137,9 @@ func (p *OpenAICompat) Chat(ctx context.Context, req ChatRequest) (string, error
 	}
 	if len(completion.Choices) == 0 || completion.Choices[0].Message.Content == "" {
 		return "", fmt.Errorf("llm returned empty completion")
+	}
+	if p.hook != nil && completion.Usage != nil {
+		p.hook(ctx, *completion.Usage)
 	}
 	return completion.Choices[0].Message.Content, nil
 }

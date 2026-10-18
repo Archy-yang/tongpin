@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/Archy-yang/tongpin/backend/internal/analytics"
 	"github.com/Archy-yang/tongpin/backend/internal/config"
 	"github.com/Archy-yang/tongpin/backend/internal/domain/auth"
 	"github.com/Archy-yang/tongpin/backend/internal/domain/billing"
@@ -23,6 +24,7 @@ import (
 	"github.com/Archy-yang/tongpin/backend/internal/llm"
 	"github.com/Archy-yang/tongpin/backend/internal/payments/stripe"
 	"github.com/Archy-yang/tongpin/backend/internal/platform/jwt"
+	"github.com/Archy-yang/tongpin/backend/internal/platform/httpx"
 	"github.com/Archy-yang/tongpin/backend/internal/platform/mailer"
 	"github.com/Archy-yang/tongpin/backend/internal/platform/middleware"
 	"github.com/Archy-yang/tongpin/backend/internal/realtime"
@@ -103,10 +105,21 @@ func (s *Server) registerRoutes() {
 
 	// chat 域：AI 陪伴聊天
 	provider := llm.NewOpenAICompat(s.cfg.LLM.BaseURL, s.cfg.LLM.APIKey, s.cfg.LLM.Model)
+
+	// 埋点：LLM 用量在 provider 咽喉处统一记录（归属用户经 ctx 带入）；
+	// 各域行为事件（发消息/暖场/真人消息）由域内 Record。
+	rec := analytics.New(s.db)
+	provider.SetUsageHook(func(ctx context.Context, u llm.Usage) {
+		rec.Record(ctx, llm.UserIDFrom(ctx), analytics.EvLLMCall, map[string]any{
+			"in_tokens": u.PromptTokens, "out_tokens": u.CompletionTokens, "model": s.cfg.LLM.Model,
+		})
+	})
+
 	chatRepo := chat.NewRepository(s.db)
 	chatSvc := chat.NewService(chatRepo, provider, nil) // style 尚未创建，下面回填风格对齐
 	s.chatSvc = chatSvc
 	chatSvc.SetFreeQuotaDefault(s.cfg.FreeDailyMsgQuota)
+	chatSvc.SetRecorder(rec)
 	chatSvc.SetNotifier(chatNotifier{hub: hub})
 	chatHandler := chat.NewHandler(chatSvc)
 	chatHandler.RegisterRoutes(authed)
@@ -148,6 +161,7 @@ func (s *Server) registerRoutes() {
 		authNamer{auth: authSvc},
 	)
 	contactSvc.SetNotifier(hubAdapter{hub: hub})
+	contactSvc.SetRecorder(rec)
 	contact.NewHandler(contactSvc).RegisterRoutes(authed)
 	match.NewHandler(matchSvc).RegisterRoutes(authed)
 	consent.NewHandler(consentSvc).RegisterRoutes(authed)
@@ -160,6 +174,7 @@ func (s *Server) registerRoutes() {
 		s.styleSvc,
 		llmCompleter{p: provider},
 	)
+	icebreakSvc.SetRecorder(rec)
 	icebreak.NewHandler(icebreakSvc).RegisterRoutes(authed)
 
 	// billing 域：订阅与支付（渠道适配器见 internal/payments，按配置注册）
@@ -180,6 +195,13 @@ func (s *Server) registerRoutes() {
 
 	// 会员权益接入 chat 额度（chat 不感知 billing，经消费方接口回填）
 	chatSvc.SetEntitlements(billingEntitlements{billing: billingSvc})
+
+	// 埋点上报与管理指标（app_open 走登录态；/admin/metrics 凭 X-Admin-Token）
+	authed.POST("/analytics/open", func(c *gin.Context) {
+		rec.Record(c.Request.Context(), middleware.UserIDFrom(c), analytics.EvAppOpen, nil)
+		httpx.OK(c, nil)
+	})
+	analytics.NewAdminHandler(rec, s.cfg.AdminToken).RegisterAdminRoutes(api)
 }
 
 // ---- 跨域适配器（依赖接线只出现在装配层）----

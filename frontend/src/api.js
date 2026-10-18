@@ -162,6 +162,12 @@ export async function sendFeedback(matchId, direction) {
   return request('POST', '/match/feedback', { match_id: matchId, direction })
 }
 
+// ---- 行为埋点（fire-and-forget，失败静默）----
+
+export async function reportOpen() {
+  return request('POST', '/analytics/open')
+}
+
 // ---- 订阅与支付（billing）----
 
 export async function getSubscription() {

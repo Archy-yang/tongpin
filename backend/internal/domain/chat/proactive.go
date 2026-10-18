@@ -70,7 +70,7 @@ func (s *Service) ProactiveMessage(ctx context.Context, conv Conversation) error
 	sys := personaBase + memorySection(conv.MemorySummary) + mirrorRule
 	user := fmt.Sprintf(proactiveUserPrompt, bucketName)
 
-	raw, err := s.completer.Chat(ctx, llm.ChatRequest{
+	raw, err := s.completer.Chat(llm.WithUser(ctx, conv.UserID), llm.ChatRequest{
 		Messages: []llm.Message{
 			{Role: "system", Content: sys},
 			{Role: "user", Content: user},

@@ -12,6 +12,7 @@ const (
 	CodeOK            = 0
 	CodeInvalidParam  = 1001
 	CodeUnauthorized  = 2001
+	CodeNotFound      = 2002 // 资源不存在（管理端点对无 token 者伪装成不存在）
 	CodeForbidden     = 2003
 	CodeBusinessRule  = 3001
 	CodeQuotaExceeded = 3002 // 免费聊天额度用完（HTTP 429，前端引导会员升级）

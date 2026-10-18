@@ -8,6 +8,7 @@ import (
 	"math"
 	"strings"
 
+	"github.com/Archy-yang/tongpin/backend/internal/analytics"
 	"github.com/Archy-yang/tongpin/backend/internal/llm"
 )
 
@@ -116,7 +117,11 @@ type Service struct {
 	notifier  AINotifier        // 可为 nil（主动消息不实时推送）
 	quota     int               // 免费用户每日聊天条数；<=0 表示关闭额度限制
 	member    EntitlementProvider // 可为 nil（支付未接入时全部走免费额度）
+	rec       *analytics.Recorder // 可为 nil（不埋点）
 }
+
+// SetRecorder 装配期注入埋点（行为计数，不含消息内容）。
+func (s *Service) SetRecorder(r *analytics.Recorder) { s.rec = r }
 
 // ErrQuotaExceeded 当日免费额度用完（handler 据此返回 3002，引导升级会员）。
 var ErrQuotaExceeded = errors.New("daily free quota exceeded")
@@ -151,6 +156,7 @@ func (s *Service) UpdateMemory(ctx context.Context, conv Conversation) error {
 	if len(msgs) == 0 {
 		return nil
 	}
+	ctx = llm.WithUser(ctx, conv.UserID) // 记忆合并的 token 归属到该用户
 
 	raw, err := s.completer.Chat(ctx, llm.ChatRequest{
 		Messages: []llm.Message{
@@ -189,6 +195,11 @@ func (s *Service) SendMessage(ctx context.Context, userID int64, content string)
 	if err := s.checkQuota(ctx, userID); err != nil {
 		return SendMessageResponse{}, err
 	}
+	if s.rec != nil {
+		s.rec.Record(ctx, userID, analytics.EvChatUserMsg, map[string]any{"chars": len([]rune(content))})
+	}
+	// 后续 LLM 调用的 token 用量归属到该用户（llm.WithUser → UsageHook）
+	ctx = llm.WithUser(ctx, userID)
 
 	conv, err := s.repo.GetOrCreateConversation(ctx, userID)
 	if err != nil {

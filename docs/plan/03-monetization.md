@@ -65,7 +65,9 @@ Netflix 模式 = 订阅在网页完成、App 只消费已登录权益，全渠�
 
 1. **免费额度实现**（✅ 已完成）：`FREE_DAILY_MSG_QUOTA`（默认 10，0/负数关闭限制）；
    用户级 `users.free_quota` 覆盖（0=用默认，负数=不限额，作为未来会员占位）；超额返回 3002；
-2. 埋点：每人每日 LLM 调用/token、次日与 7 日留存、暖场发起率——用于校准上表；
+2. 埋点（✅ 已完成）：`GET /admin/metrics`（X-Admin-Token）输出每日活跃/新用户/
+   消息量/真实 token 用量/暖场发起数/真人消息数 + 活跃留存（D1/D7）；
+   生产环境配置 `ADMIN_TOKEN` 后可用；
 3. 支付对接（✅ Stripe 已完成，含 webhook 状态机与幂等；Apple/Google 适配器接口已预留，
    等原生 App 后在 `internal/payments/` 填实现）：密钥未配置时全链路降级为「支付暂未开放」；
    上线时配置 `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` / `STRIPE_PRICE_MONTHLY` /

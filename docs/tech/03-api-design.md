@@ -141,6 +141,21 @@ POST /api/v1/billing/webhook/:provider # 公开路由：验签即鉴权（Stripe
 - 会员权益经 `chat.EntitlementProvider` 消费方接口接入聊天额度（会员不限量），chat 不感知 billing
 - 环境变量：`STRIPE_SECRET_KEY`、`STRIPE_WEBHOOK_SECRET`、`STRIPE_PRICE_MONTHLY`、`PUBLIC_BASE_URL`
 
+## 行为埋点（analytics）
+
+```
+POST /api/v1/analytics/open       # 登录态；前端每次加载报一次（留存统计）
+GET  /api/v1/admin/metrics?days=N # X-Admin-Token 守卫；无令牌伪装 404
+  → { "daily": [{day, active_users, new_users, messages, llm_calls,
+       in_tokens, out_tokens, icebreaks, dm_sent}],
+      "retention": [{day, active, d1, d7}] }
+```
+
+- 只记行为计数不记内容（`analytics_events`：user_id / name / props JSONB）
+- LLM token 用量是**真实值**：`llm.OpenAICompat` 咽喉处 UsageHook 解析协议自带 usage，
+  归属用户经 `llm.WithUser(ctx)` 从各调用点带入
+- 事件异步尽力而为写入，绝不阻塞业务路径；`ADMIN_TOKEN` 未配置则管理端点整体关闭
+
 ## WebSocket 实时推送
 
 ```

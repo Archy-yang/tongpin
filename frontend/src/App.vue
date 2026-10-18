@@ -1,6 +1,6 @@
 <script setup>
 import { onMounted, ref } from 'vue'
-import { ensureLogin } from './api.js'
+import { ensureLogin, reportOpen } from './api.js'
 
 const user = ref(null)
 const ready = ref(false)
@@ -14,6 +14,8 @@ onMounted(async () => {
   } finally {
     ready.value = true
   }
+  // 埋点：打开应用（留存统计用），尽力而为
+  reportOpen().catch(() => {})
 })
 </script>
 

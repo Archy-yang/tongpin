@@ -18,6 +18,7 @@ type Config struct {
 	WorkerIntervalSec    int // 风格/记忆 worker 轮询间隔（秒），默认 300
 	ProactiveIntervalSec int // 主动开话 worker 轮询间隔（秒），默认 900
 	FreeDailyMsgQuota    int // 免费用户每日 AI 聊天条数（0 或负数 = 关闭限制），默认 10
+	AdminToken           string // 管理端点令牌（X-Admin-Token）；空 = 管理端点关闭
 	Stripe               StripeConfig
 	LLM                  LLMConfig
 }
@@ -52,6 +53,7 @@ func Load() *Config {
 		WorkerIntervalSec:    workerInterval(),
 		ProactiveIntervalSec: proactiveInterval(),
 		FreeDailyMsgQuota:    freeDailyQuota(),
+		AdminToken:           getenv("ADMIN_TOKEN", ""),
 		Stripe: StripeConfig{
 			SecretKey:     getenv("STRIPE_SECRET_KEY", ""),
 			WebhookSecret: getenv("STRIPE_WEBHOOK_SECRET", ""),

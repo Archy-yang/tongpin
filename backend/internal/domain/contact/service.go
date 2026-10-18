@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+
+	"github.com/Archy-yang/tongpin/backend/internal/analytics"
 )
 
 var (
@@ -47,7 +49,11 @@ type Service struct {
 	consents ConsentRecorder
 	users    UserDirectory
 	notifier RealtimePublisher
+	rec      *analytics.Recorder // 可为 nil（不埋点）
 }
+
+// SetRecorder 装配期注入埋点。
+func (s *Service) SetRecorder(r *analytics.Recorder) { s.rec = r }
 
 func NewService(repo *Repository, match MatchGateway, blocks BlockChecker, consents ConsentRecorder, users UserDirectory) *Service {
 	return &Service{repo: repo, match: match, blocks: blocks, consents: consents, users: users}
@@ -173,6 +179,9 @@ func (s *Service) SendDirect(ctx context.Context, userID, matchID int64, content
 	msg, err := s.repo.InsertDirectMessage(ctx, matchID, userID, content)
 	if err != nil {
 		return DirectMessage{}, err
+	}
+	if s.rec != nil {
+		s.rec.Record(ctx, userID, analytics.EvDMSent, nil)
 	}
 	if s.notifier != nil {
 		counterpart, err := s.counterpartOf(ctx, matchID, userID)
