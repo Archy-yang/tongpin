@@ -1,6 +1,8 @@
 # 同频后端：两阶段构建，最终镜像只含二进制与迁移文件
-FROM golang:1.25-alpine AS build
+FROM golang:1.26-alpine AS build
 WORKDIR /src
+# 国内网络环境用 goproxy.cn；已可达 proxy.golang.org 时可去掉
+ENV GOPROXY=https://goproxy.cn,direct
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .

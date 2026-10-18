@@ -1,5 +1,10 @@
 # 部署手册
 
+> 首次真实构建验证（2026-10-18）补充：Dockerfile 已固定 `golang:1.26-alpine` 并内置
+> `GOPROXY=https://goproxy.cn`（国内网络必需）；compose 的 build 已显式指向
+> `docker/Dockerfile` 子路径。基础镜像拉不动时先走镜像源 retag：
+> `docker pull docker.m.daocloud.io/library/golang:1.26-alpine && docker tag docker.m.daocloud.io/library/golang:1.26-alpine golang:1.26-alpine`
+
 ## 架构
 
 ```
