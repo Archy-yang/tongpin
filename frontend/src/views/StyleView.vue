@@ -1,9 +1,10 @@
 <script setup>
 import { onMounted, ref } from 'vue'
-import { loadStyleProfile, deleteStyleProfile } from '../api.js'
+import { loadStyleProfile, deleteStyleProfile, getMe } from '../api.js'
 
 const view = ref(null) // { status, message_count, profile, confidence, version }
 const error = ref('')
+const needBind = ref(false) // 未绑邮箱：卡成形后提示留住它
 const confirmingDelete = ref(false)
 const deleting = ref(false)
 
@@ -46,6 +47,10 @@ async function load() {
   } catch (e) {
     error.value = e.message
   }
+  try {
+    const me = await getMe()
+    needBind.value = !me.email
+  } catch { /* 忽略 */ }
 }
 
 async function remove() {
@@ -67,7 +72,8 @@ async function remove() {
 
 <template>
   <main class="style-page">
-    <header class="head">
+    <header class="pagehead">
+      <p class="when">灯下成形</p>
       <h1>同频卡</h1>
       <p class="sub">从你和 AI 的对话里长出来的画像</p>
     </header>
@@ -85,7 +91,7 @@ async function remove() {
 
     <!-- 画像就绪 -->
     <section v-else-if="view && view.status === 'ready'" class="card">
-      <p class="meta">第 {{ view.version }} 版 · 把握 {{ Math.round(view.confidence * 100) }}%</p>
+      <p class="meta">第 {{ view.version }} 版 · <span class="confidence">把握 {{ Math.round(view.confidence * 100) }}%</span></p>
 
       <dl class="grid">
         <div class="row"><dt>沟通节奏</dt><dd>{{ fmt(pace, view.profile.communication_style?.pace) }}</dd></div>
@@ -100,7 +106,9 @@ async function remove() {
 
       <div v-if="view.profile.topic_preferences?.length" class="topics">
         <h2>常聊的话题</h2>
-        <p class="topic-list">{{ fmtTopics(view.profile.topic_preferences) }}</p>
+        <div class="chips">
+          <span v-for="t in view.profile.topic_preferences" :key="t" class="chip">{{ topics[t] ?? t }}</span>
+        </div>
       </div>
 
       <p class="note">
@@ -109,6 +117,10 @@ async function remove() {
       </p>
 
       <router-link to="/meet" class="meet-cta">拿这张卡去遇见 →</router-link>
+
+      <router-link v-if="needBind" to="/me" class="save-hint">
+        绑定邮箱，换设备也不丢这张卡 →
+      </router-link>
 
       <div class="danger-zone">
         <button class="ghost" :disabled="deleting" @click="remove">
@@ -124,18 +136,7 @@ async function remove() {
 .style-page {
   flex: 1;
   overflow-y: auto;
-  padding: 28px 22px 30px;
-}
-.head h1 {
-  font-family: var(--serif);
-  font-weight: 600;
-  font-size: 26px;
-  margin: 0;
-}
-.sub {
-  margin: 4px 0 0;
-  color: var(--mist);
-  font-size: 14px;
+  padding: 0 20px 24px;
 }
 .error { color: #d98f6a; font-size: 14px; }
 
@@ -149,26 +150,28 @@ async function remove() {
   margin: 0;
   color: var(--paper);
 }
-.collect-num span { font-size: 18px; color: var(--mist); }
+.collect-num span { font-size: 18px; color: var(--moon); }
 .collect-text {
   margin: 12px auto 0;
   max-width: 26ch;
-  color: var(--mist);
+  color: var(--moon);
   font-size: 15px;
 }
 
 .card {
-  margin-top: 24px;
+  margin-top: 18px;
   border: 1px solid var(--line);
-  border-radius: 16px;
+  border-radius: 18px;
   background: var(--panel);
   padding: 20px 18px;
 }
 .meta {
   margin: 0 0 12px;
-  color: var(--amber);
-  font-size: 13px;
+  color: var(--moon);
+  font-size: 12.5px;
+  letter-spacing: .04em;
 }
+.confidence { color: var(--lamp); }
 .grid { margin: 0; }
 .row {
   display: flex;
@@ -178,7 +181,7 @@ async function remove() {
   border-bottom: 1px solid var(--line);
 }
 .row:last-child { border-bottom: none; }
-.row dt { color: var(--mist); font-size: 14.5px; }
+.row dt { color: var(--moon); font-size: 13.5px; }
 .row dd {
   margin: 0;
   font-size: 14.5px;
@@ -187,18 +190,22 @@ async function remove() {
 }
 .topics h2 {
   font-size: 14.5px;
-  color: var(--mist);
+  color: var(--moon);
   font-weight: normal;
   margin: 14px 0 4px;
 }
-.topic-list {
-  margin: 0;
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.chip {
   font-family: var(--serif);
-  font-size: 15px;
+  font-size: 13px;
+  color: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 12px;
 }
 .note {
   margin: 16px 0 0;
-  color: var(--mist);
+  color: var(--moon);
   font-size: 13px;
   line-height: 1.7;
 }
@@ -206,20 +213,27 @@ async function remove() {
   display: block;
   margin-top: 18px;
   text-align: center;
-  background: var(--amber);
-  color: #191510;
-  border-radius: 10px;
+  background: var(--lamp);
+  color: var(--lamp-ink);
+  border-radius: 11px;
   padding: 11px 0;
   font-size: 15px;
   font-weight: 600;
+  text-decoration: none;
+}
+.save-hint {
+  display: block;
+  margin-top: 14px;
+  color: var(--lamp);
+  font-size: 13.5px;
   text-decoration: none;
 }
 .danger-zone { margin-top: 18px; }
 .ghost {
   background: none;
   border: 1px solid var(--line);
-  color: var(--mist);
-  border-radius: 10px;
+  color: var(--moon);
+  border-radius: 11px;
   padding: 8px 14px;
   font-size: 14px;
 }

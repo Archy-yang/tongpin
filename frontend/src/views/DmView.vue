@@ -120,7 +120,9 @@ async function rate(direction) {
       <p class="note" v-else-if="feedback === 'like'">同频，真好</p>
       <p class="note" v-else>收到，之后会少推这样的人</p>
     </header>
-    <p class="ws-note">{{ live ? '实时连接中' : '连接中……' }}</p>
+    <p class="ws-note" :class="live ? 'on' : 'off'">
+      <i class="ws-dot" aria-hidden="true"></i>{{ live ? '实时连接中' : '连接中……' }}
+    </p>
 
     <div class="stream">
       <p v-if="!messages.length && !error" class="empty">
@@ -157,29 +159,39 @@ async function rate(direction) {
   padding: 14px 18px 10px;
   border-bottom: 1px solid var(--line);
 }
-.back { color: var(--amber); text-decoration: none; font-size: 14px; }
-.note { color: var(--mist); font-size: 12.5px; margin: 0; }
-.on { color: #8fae7e; }
-.off { color: var(--mist); }
+.back { color: var(--lamp); text-decoration: none; font-size: 14px; }
+.note { color: var(--moon); font-size: 12.5px; margin: 0; }
+.on { color: var(--moon-dim); }
+.on .ws-dot { background: #8fae7e; box-shadow: 0 0 6px rgba(143, 174, 126, .7); }
+.off { color: var(--moon-dim); }
+.off .ws-dot { background: var(--moon-dim); }
 .ws-note {
   margin: 0;
-  padding: 4px 18px 0;
-  color: var(--mist);
+  padding: 2px 20px 0;
   font-size: 11.5px;
   text-align: right;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+}
+.ws-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
 }
 .rate { display: flex; gap: 8px; }
 .rate-btn {
   background: none;
   border: 1px solid var(--line);
-  color: var(--mist);
+  color: var(--moon);
   border-radius: 8px;
   padding: 4px 10px;
   font-size: 12.5px;
 }
-.rate-btn:hover { border-color: var(--amber); color: var(--amber); }
-.stream { flex: 1; overflow-y: auto; padding: 16px 18px 8px; }
-.empty { color: var(--mist); text-align: center; font-family: var(--serif); margin-top: 48px; }
+.rate-btn:hover { border-color: var(--lamp); color: var(--lamp); }
+.stream { flex: 1; overflow-y: auto; padding: 16px 20px 8px; }
+.empty { color: var(--moon); text-align: center; font-family: var(--serif); margin-top: 48px; }
 .me-line, .them-line { display: flex; margin: 10px 0; }
 .me-line { justify-content: flex-end; }
 .them-line { justify-content: flex-start; }
@@ -191,9 +203,18 @@ async function rate(direction) {
   padding: 10px 14px;
   max-width: 30ch;
   font-size: 15.5px;
+  line-height: 1.6;
 }
-.me-line .bubble { border-radius: 14px 14px 4px 14px; }
-.them-line .bubble { border-radius: 14px 14px 14px 4px; }
+/* 我的话写在暖纸上（与 AI 聊天同一套语言）；对方保持夜的暗面板 */
+.me-line .bubble {
+  background: var(--note);
+  color: var(--note-ink);
+  border: none;
+  border-radius: 16px 16px 4px 16px;
+  box-shadow: 0 2px 14px rgba(231, 223, 204, .12);
+  animation: msg-in .18s ease-out both;
+}
+.them-line .bubble { border-radius: 16px 16px 16px 4px; }
 .error { color: #d98f6a; font-size: 14px; margin: 8px 18px; }
 .composer {
   display: flex;
@@ -203,9 +224,9 @@ async function rate(direction) {
 }
 .composer textarea { flex: 1; resize: none; max-height: 96px; }
 .composer button {
-  background: var(--amber);
-  color: #191510;
-  border-radius: 10px;
+  background: var(--lamp);
+  color: var(--lamp-ink);
+  border-radius: 11px;
   padding: 0 18px;
   font-size: 15px;
   font-weight: 600;

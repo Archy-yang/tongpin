@@ -100,7 +100,7 @@ async function run(fn) {
 
 const doBind = () => run(async () => {
   await bindEmail(email.value, password.value)
-  msg.value = '绑定成功，以后用邮箱就能登录了'
+  msg.value = '绑定成功，每天可聊 15 条了，换设备也能登录'
   await reload()
 })
 
@@ -148,7 +148,10 @@ async function reload() {
 
 <template>
   <main class="me-page">
-    <header class="head"><h1>我的</h1></header>
+    <header class="pagehead">
+      <p class="when">账号与设置</p>
+      <h1>我的</h1>
+    </header>
 
     <!-- 账号 -->
     <section class="card">
@@ -261,46 +264,45 @@ async function reload() {
 </template>
 
 <style scoped>
-.me-page { flex: 1; overflow-y: auto; padding: 28px 22px 30px; }
-.head h1 { font-family: var(--serif); font-weight: 600; font-size: 26px; margin: 0 0 20px; }
+.me-page { flex: 1; overflow-y: auto; padding: 0 20px 24px; }
 .card {
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: 18px;
   background: var(--panel);
   padding: 18px 16px;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
-.card h2 { font-size: 14.5px; color: var(--mist); font-weight: normal; margin: 0 0 12px; }
+.card h2 { font-size: 12px; color: var(--moon); font-weight: normal; letter-spacing: .1em; margin: 0 0 12px; }
 .account-line { margin: 0 0 12px; font-family: var(--serif); font-size: 15.5px; display: flex; align-items: center; gap: 8px; }
-.tag { font-size: 12px; color: var(--amber); border: 1px solid var(--amber); border-radius: 6px; padding: 1px 8px; }
-.ghost-tag { color: var(--mist); border-color: var(--line); }
+.tag { font-size: 12px; color: var(--lamp); border: 1px solid var(--lamp); border-radius: 6px; padding: 1px 8px; }
+.ghost-tag { color: var(--moon); border-color: var(--line); }
 .stack { display: flex; flex-direction: column; gap: 10px; }
 .stack input, .stack select {
-  background: var(--ink); border: 1px solid var(--line); border-radius: 10px;
+  background: var(--night-0); border: 1px solid var(--line); border-radius: 10px;
   padding: 10px 12px; color: var(--paper); font-size: 15px; font-family: inherit;
   width: 100%; box-sizing: border-box;
 }
-.stack input::placeholder { color: var(--mist); }
-.primary { background: var(--amber); color: #191510; border-radius: 10px; padding: 11px 0; font-size: 15px; font-weight: 600; }
+.stack input::placeholder { color: var(--moon); }
+.primary { background: var(--lamp); color: var(--lamp-ink); border-radius: 10px; padding: 11px 0; font-size: 15px; font-weight: 600; }
 .primary:disabled { opacity: 0.5; }
-.ghost { background: none; border: 1px solid var(--line); color: var(--mist); border-radius: 10px; padding: 10px 0; font-size: 14px; width: 100%; }
+.ghost { background: none; border: 1px solid var(--line); color: var(--moon); border-radius: 10px; padding: 10px 0; font-size: 14px; width: 100%; }
 .danger:hover { border-color: #d98f6a; color: #d98f6a; }
-.linklike { background: none; border: none; color: var(--mist); font-size: 13.5px; padding: 2px 0; text-align: left; }
-.linklike:hover { color: var(--amber); }
+.linklike { background: none; border: none; color: var(--moon); font-size: 13.5px; padding: 2px 0; text-align: left; }
+.linklike:hover { color: var(--lamp); }
 .row-between { display: flex; gap: 10px; justify-content: space-between; align-items: center; }
-.row-between select { flex: 1; background: var(--ink); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; color: var(--paper); font-size: 15px; }
+.row-between select { flex: 1; background: var(--night-0); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; color: var(--paper); font-size: 15px; }
 .code-row { display: flex; gap: 10px; }
 .code-row input { flex: 1; letter-spacing: 0.3em; }
 .code-row .ghost { width: auto; padding: 10px 14px; flex: none; }
-.hint { margin: 0; color: var(--mist); font-size: 13.5px; line-height: 1.7; }
-.ok { color: var(--amber); font-size: 14px; margin: 10px 0 0; }
+.hint { margin: 0; color: var(--moon); font-size: 13.5px; line-height: 1.7; }
+.ok { color: var(--lamp); font-size: 14px; margin: 10px 0 0; }
 .error { color: #d98f6a; font-size: 14px; margin: 10px 0 0; }
-.privacy { margin: 14px 0 0; color: var(--mist); font-size: 13px; line-height: 1.7; }
+.privacy { margin: 14px 0 0; color: var(--moon); font-size: 13px; line-height: 1.7; }
 .proactive {
   display: flex; align-items: flex-start; gap: 8px;
   margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line);
   cursor: pointer;
 }
-.proactive input { accent-color: var(--amber); margin-top: 3px; }
-.proactive span { color: var(--mist); font-size: 13.5px; line-height: 1.6; }
+.proactive input { accent-color: var(--lamp); margin-top: 3px; }
+.proactive span { color: var(--moon); font-size: 13.5px; line-height: 1.6; }
 </style>

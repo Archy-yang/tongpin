@@ -95,6 +95,8 @@ func (s *Server) registerRoutes() {
 
 	// 公开路由
 	authSvc := auth.NewService(auth.NewRepository(s.db), issuer, mailer.New(mailer.FromEnv()))
+	authSvc.SetSignupDailyLimit(s.cfg.SignupIPDailyLimit)
+	authSvc.SetBoundQuota(s.cfg.BoundDailyMsgQuota)
 	authHandler := auth.NewHandler(authSvc)
 	authHandler.RegisterPublicRoutes(api)
 	authHandler.RegisterEmailRoutes(api)
@@ -145,6 +147,7 @@ func (s *Server) registerRoutes() {
 		authDirectory{auth: authSvc},
 		safetySvc,
 		consentRec,
+		authEmailGate{auth: authSvc}, // 进池门槛：已绑邮箱
 		s.cfg.MatchPoolThreshold,
 	)
 
@@ -192,6 +195,7 @@ func (s *Server) registerRoutes() {
 	}
 	billing.NewHandler(billingSvc).RegisterRoutes(authed)
 	billing.NewHandler(billingSvc).RegisterWebhookRoutes(api) // 公开路由：验签即鉴权
+	billingSvc.SetAccountGate(authEmailGate{auth: authSvc})   // 购买门槛：已绑邮箱
 
 	// 会员权益接入 chat 额度（chat 不感知 billing，经消费方接口回填）
 	chatSvc.SetEntitlements(billingEntitlements{billing: billingSvc})
@@ -281,6 +285,13 @@ type billingEntitlements struct{ billing *billing.Service }
 
 func (b billingEntitlements) IsEntitled(ctx context.Context, userID int64) (bool, error) {
 	return b.billing.Entitlement(ctx, userID)
+}
+
+// authEmailGate 把 auth.Service 适配为 match/billing 的账号门槛（已绑邮箱与否）。
+type authEmailGate struct{ auth *auth.Service }
+
+func (g authEmailGate) HasEmail(ctx context.Context, userID int64) (bool, error) {
+	return g.auth.HasEmail(ctx, userID)
 }
 
 // deferredConsent 把 consent.Service 适配为 match.ConsentRecorder / contact.ConsentRecorder，

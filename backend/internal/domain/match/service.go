@@ -32,6 +32,11 @@ type ConsentRecorder interface {
 	Record(ctx context.Context, userID int64, targetType string, targetID *int64, granted bool) error
 }
 
+// AccountGate 账号信任门槛：真人接触面要求可恢复的账号（已绑邮箱）。
+type AccountGate interface {
+	HasEmail(ctx context.Context, userID int64) (bool, error)
+}
+
 const (
 	// maxSuggestions 每次最多持有的契合提示数（宁缺毋滥）
 	maxSuggestions = 3
@@ -44,14 +49,15 @@ type Service struct {
 	users         UserDirectory
 	blocks        BlockChecker
 	consents      ConsentRecorder
+	gate          AccountGate // 可为 nil（关闭邮箱门槛）
 	poolThreshold int
 }
 
-func NewService(repo *Repository, users UserDirectory, blocks BlockChecker, consents ConsentRecorder, poolThreshold int) *Service {
+func NewService(repo *Repository, users UserDirectory, blocks BlockChecker, consents ConsentRecorder, gate AccountGate, poolThreshold int) *Service {
 	if poolThreshold < 0 { // 0 = 不设阈值（测试模式），负数才回退默认
 		poolThreshold = defaultPoolThreshold
 	}
-	return &Service{repo: repo, users: users, blocks: blocks, consents: consents, poolThreshold: poolThreshold}
+	return &Service{repo: repo, users: users, blocks: blocks, consents: consents, gate: gate, poolThreshold: poolThreshold}
 }
 
 // OptIn 进入匹配池。要求风格画像已生成（向量可用）。
@@ -73,6 +79,16 @@ func (s *Service) OptIn(ctx context.Context, userID int64, req OptInRequest) (Op
 	if me == nil {
 		return OptInView{}, ErrProfileNotReady // 画像未就绪不允许进入匹配池
 	}
+	// 真人接触面要求可恢复账号：匿名可以聊 AI，但进池子得先绑定邮箱
+	if s.gate != nil {
+		bound, err := s.gate.HasEmail(ctx, userID)
+		if err != nil {
+			return OptInView{}, fmt.Errorf("account gate: %w", err)
+		}
+		if !bound {
+			return OptInView{}, ErrEmailRequired
+		}
+	}
 
 	o := OptIn{UserID: userID, Intent: req.Intent, AgePrefMin: req.AgePrefMin, AgePrefMax: req.AgePrefMax, AcceptRealContact: accept, Status: "active"}
 	if err := s.repo.UpsertOptIn(ctx, o); err != nil {
@@ -85,6 +101,7 @@ func (s *Service) OptIn(ctx context.Context, userID int64, req OptInRequest) (Op
 }
 
 var ErrProfileNotReady = fmt.Errorf("style profile not ready")
+var ErrEmailRequired = fmt.Errorf("email required before joining the pool")
 var ErrNotOptedIn = fmt.Errorf("not opted in")
 var ErrMatchNotFound = fmt.Errorf("match not found")
 var ErrNotParticipant = fmt.Errorf("not a participant of this match")

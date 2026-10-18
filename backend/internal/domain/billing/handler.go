@@ -28,6 +28,10 @@ func (h *Handler) RegisterWebhookRoutes(rg gin.IRouter) {
 func (h *Handler) checkout(c *gin.Context) {
 	url, err := h.svc.StartCheckout(c.Request.Context(), middleware.UserIDFrom(c), "")
 	if err != nil {
+		if errors.Is(err, ErrEmailRequired) {
+			httpx.FailBusiness(c, httpx.CodeBusinessRule, "购买前先绑定邮箱（我的 → 绑定邮箱）")
+			return
+		}
 		if errors.Is(err, ErrProviderUnavailable) {
 			httpx.FailBusiness(c, httpx.CodeBusinessRule, "支付暂未开放，敬请期待")
 			return

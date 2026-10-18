@@ -16,20 +16,41 @@ import (
 )
 
 type Service struct {
-	repo   *Repository
-	tokens *jwt.Issuer
-	mailer Mailer
+	repo            *Repository
+	tokens          *jwt.Issuer
+	mailer          Mailer
+	signupIPDaily   int // 每 IP 每日新设备账号上限；<=0 关闭
+	boundDailyQuota int // 绑定邮箱后的每日聊天条数（注册激励）
 }
 
 func NewService(repo *Repository, tokens *jwt.Issuer, mailer Mailer) *Service {
 	return &Service{repo: repo, tokens: tokens, mailer: mailer}
 }
 
-// DeviceLogin 设备匿名登录：不存在则注册，存在则直接登录。
-func (s *Service) DeviceLogin(ctx context.Context, deviceID string) (LoginResponse, error) {
+// SetSignupDailyLimit 装配期注入 IP 注册限流配置。
+func (s *Service) SetSignupDailyLimit(n int) { s.signupIPDaily = n }
+
+// SetBoundQuota 装配期注入绑定邮箱后的额度激励值。
+func (s *Service) SetBoundQuota(n int) { s.boundDailyQuota = n }
+
+// DeviceLogin 设备匿名登录：不存在则注册（受 IP 限流），存在则直接登录。
+func (s *Service) DeviceLogin(ctx context.Context, deviceID, ip string) (LoginResponse, error) {
 	user, isNew, err := s.repo.UpsertByDeviceID(ctx, deviceID)
 	if err != nil {
 		return LoginResponse{}, fmt.Errorf("upsert user: %w", err)
+	}
+	if isNew && s.signupIPDaily > 0 {
+		// 新账号才计数：老设备回来登录不受限流影响
+		n, err := s.repo.CountSignupsToday(ctx, ip)
+		if err != nil {
+			return LoginResponse{}, fmt.Errorf("signup rate: %w", err)
+		}
+		if n >= s.signupIPDaily {
+			return LoginResponse{}, ErrSignupLimited
+		}
+		if err := s.repo.RecordSignup(ctx, ip); err != nil {
+			return LoginResponse{}, fmt.Errorf("signup rate: %w", err)
+		}
 	}
 	token, err := s.tokens.Issue(user.ID)
 	if err != nil {
@@ -66,11 +87,17 @@ func (s *Service) Basic(ctx context.Context, userID int64) (BasicUser, error) {
 	return s.repo.GetBasics(ctx, userID)
 }
 
+// HasEmail 账号是否已绑定邮箱（match/billing 域经消费方接口消费）。
+func (s *Service) HasEmail(ctx context.Context, userID int64) (bool, error) {
+	return s.repo.HasEmail(ctx, userID)
+}
+
 // ---- 邮箱 + 密码 ----
 
 var (
 	ErrEmailTaken        = errors.New("email taken")
 	ErrBadCredentials    = errors.New("bad credentials")
+	ErrSignupLimited     = errors.New("signup rate limited")
 	ErrCodeInvalid       = errors.New("code invalid or expired")
 	ErrCodeRateLimited   = errors.New("code request too frequent")
 	ErrWrongOldPassword  = errors.New("wrong old password")
@@ -140,6 +167,12 @@ func (s *Service) BindEmail(ctx context.Context, userID int64, email, password s
 	}
 	if err := s.repo.BindEmail(ctx, userID, email, string(hash)); err != nil {
 		return AccountDTO{}, err
+	}
+	// 绑定激励：额度从全局默认升级到绑定档（限制变成正向激励，见 docs/plan/04）
+	if s.boundDailyQuota > 0 {
+		if err := s.repo.SetFreeQuota(ctx, userID, s.boundDailyQuota); err != nil {
+			return AccountDTO{}, fmt.Errorf("apply bound quota: %w", err)
+		}
 	}
 	return s.Account(ctx, userID)
 }

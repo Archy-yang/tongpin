@@ -175,6 +175,42 @@ func (r *Repository) Nickname(ctx context.Context, id int64) (string, error) {
 	return nickname, err
 }
 
+// HasEmail 账号是否已绑定邮箱（match/billing 的门槛判断用）。
+func (r *Repository) HasEmail(ctx context.Context, id int64) (bool, error) {
+	var bound bool
+	err := r.db.QueryRow(ctx,
+		`SELECT COALESCE(email, '') <> '' FROM users WHERE id = $1`, id).Scan(&bound)
+	return bound, err
+}
+
+// SetFreeQuota 写用户级免费额度（绑定邮箱的激励动作；chat 域读取该列）。
+func (r *Repository) SetFreeQuota(ctx context.Context, id int64, quota int) error {
+	_, err := r.db.Exec(ctx, `UPDATE users SET free_quota = $2 WHERE id = $1`, id, quota)
+	return err
+}
+
+// ---- 设备注册 IP 限流 ----
+
+// CountSignupsToday 该 IP 今天已创建的新账号数。
+func (r *Repository) CountSignupsToday(ctx context.Context, ip string) (int, error) {
+	var n int
+	err := r.db.QueryRow(ctx,
+		`SELECT count FROM signup_rate WHERE ip = $1 AND day = CURRENT_DATE`, ip).Scan(&n)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, nil
+	}
+	return n, err
+}
+
+// RecordSignup 计一次新账号（原子自增，当日首见则建行）。
+func (r *Repository) RecordSignup(ctx context.Context, ip string) error {
+	_, err := r.db.Exec(ctx, `
+		INSERT INTO signup_rate (ip, day, count) VALUES ($1, CURRENT_DATE, 1)
+		ON CONFLICT (ip, day) DO UPDATE SET count = signup_rate.count + 1
+	`, ip)
+	return err
+}
+
 // BasicUser 跨域提供的基础信息（昵称 + 匹配硬条件字段）。
 type BasicUser struct {
 	Nickname   string

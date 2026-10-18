@@ -18,6 +18,8 @@ type Config struct {
 	WorkerIntervalSec    int // 风格/记忆 worker 轮询间隔（秒），默认 300
 	ProactiveIntervalSec int // 主动开话 worker 轮询间隔（秒），默认 900
 	FreeDailyMsgQuota    int // 免费用户每日 AI 聊天条数（0 或负数 = 关闭限制），默认 10
+	BoundDailyMsgQuota   int // 绑定邮箱后的每日条数（注册激励），默认 15
+	SignupIPDailyLimit   int // 每 IP 每日最多创建的新设备账号数（0 或负数 = 关闭），默认 10
 	AdminToken           string // 管理端点令牌（X-Admin-Token）；空 = 管理端点关闭
 	Stripe               StripeConfig
 	LLM                  LLMConfig
@@ -53,6 +55,8 @@ func Load() *Config {
 		WorkerIntervalSec:    workerInterval(),
 		ProactiveIntervalSec: proactiveInterval(),
 		FreeDailyMsgQuota:    freeDailyQuota(),
+		BoundDailyMsgQuota:   boundDailyQuota(),
+		SignupIPDailyLimit:   signupIPDailyLimit(),
 		AdminToken:           getenv("ADMIN_TOKEN", ""),
 		Stripe: StripeConfig{
 			SecretKey:     getenv("STRIPE_SECRET_KEY", ""),
@@ -96,6 +100,24 @@ func proactiveInterval() int {
 func freeDailyQuota() int {
 	if v := os.Getenv("FREE_DAILY_MSG_QUOTA"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			return n
+		}
+	}
+	return 10
+}
+
+func boundDailyQuota() int {
+	if v := os.Getenv("BOUND_DAILY_MSG_QUOTA"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return 15
+}
+
+func signupIPDailyLimit() int {
+	if v := os.Getenv("SIGNUP_IP_DAILY_LIMIT"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
 			return n
 		}
 	}

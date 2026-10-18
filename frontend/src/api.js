@@ -162,6 +162,10 @@ export async function sendFeedback(matchId, direction) {
   return request('POST', '/match/feedback', { match_id: matchId, direction })
 }
 
+export async function getMe() {
+  return request('GET', '/me') // { id, nickname, email }
+}
+
 // ---- 行为埋点（fire-and-forget，失败静默）----
 
 export async function reportOpen() {

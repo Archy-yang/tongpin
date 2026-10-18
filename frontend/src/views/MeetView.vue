@@ -13,6 +13,7 @@ const inbox = ref([])
 const outbox = ref([])
 const icebreaks = ref([]) // 按 match_id 索引的暖场会话
 const error = ref('')
+const needBind = ref(false) // 进池被邮箱门槛拦下
 const joining = ref(false)
 const busyId = ref(null)
 let pollTimer = null
@@ -85,9 +86,14 @@ async function join() {
     })
     await refresh()
   } catch (e) {
-    error.value = e.message === 'style profile not ready'
-      ? '同频卡还没成形，先去夜聊页多聊几句'
-      : e.message
+    if (e.message === 'style profile not ready') {
+      error.value = '同频卡还没成形，先去夜聊页多聊几句'
+    } else if (e.message.includes('绑定邮箱')) {
+      error.value = e.message
+      needBind.value = true // 引导去「我的」
+    } else {
+      error.value = e.message
+    }
   } finally {
     joining.value = false
   }
@@ -118,12 +124,14 @@ const activeIcebreaks = () => icebreaks.value.filter(s => ['generating', 'ready'
 
 <template>
   <main class="meet">
-    <header class="head">
+    <header class="pagehead">
+      <p class="when">夜里 · 宁缺毋滥</p>
       <h1>遇见</h1>
       <p class="sub">把同频卡拿去，认识说话方式相像的人</p>
     </header>
 
     <p v-if="error" class="error" role="alert">{{ error }}</p>
+    <router-link v-if="needBind" to="/me" class="bind-link">去「我的」绑定邮箱 →</router-link>
     <p v-if="loading" class="hint">…</p>
 
     <!-- 未进入匹配池 -->
@@ -272,11 +280,11 @@ const activeIcebreaks = () => icebreaks.value.filter(s => ['generating', 'ready'
 </template>
 
 <style scoped>
-.meet { flex: 1; overflow-y: auto; padding: 28px 22px 30px; }
-.head h1 { font-family: var(--serif); font-weight: 600; font-size: 26px; margin: 0; }
-.sub { margin: 4px 0 0; color: var(--mist); font-size: 14px; }
+.meet { flex: 1; overflow-y: auto; padding: 0 20px 24px; }
+.sub { margin: 2px 0 0; color: var(--moon); font-size: 12.5px; }
 .error { color: #d98f6a; font-size: 14px; }
-.hint { color: var(--mist); }
+.bind-link { color: var(--lamp); font-size: 14px; text-decoration: none; }
+.hint { color: var(--moon); }
 
 .join { margin-top: 28px; }
 .join-lede {
@@ -287,32 +295,41 @@ const activeIcebreaks = () => icebreaks.value.filter(s => ['generating', 'ready'
 }
 .join-form { display: flex; flex-direction: column; gap: 14px; margin-top: 20px; }
 .join-form label { display: flex; flex-direction: column; gap: 6px; }
-.join-form span { color: var(--mist); font-size: 14px; }
-select { accent-color: var(--amber); font-family: inherit; background: var(--panel); color: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font-size: 15px; }
+.join-form span { color: var(--moon); font-size: 14px; }
+select { accent-color: var(--lamp); font-family: inherit; background: var(--panel); color: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font-size: 15px; }
 .age-row { display: flex; gap: 14px; }
 .age-row label { flex: 1; }
 .check { flex-direction: row !important; align-items: center; gap: 8px !important; }
-.check span { color: var(--mist); font-size: 13.5px; }
-.join-form button { margin-top: 8px; background: var(--amber); color: #191510; border-radius: 10px; padding: 11px 0; font-size: 15px; font-weight: 600; }
+.check span { color: var(--moon); font-size: 13.5px; }
+.join-form button { margin-top: 8px; background: var(--lamp); color: var(--lamp-ink); border-radius: 10px; padding: 11px 0; font-size: 15px; font-weight: 600; }
 .join-form button:disabled { opacity: 0.5; }
 
 .warming { margin-top: 64px; text-align: center; }
 .warm-num { font-family: var(--serif); font-size: 56px; margin: 0; }
-.warm-text { color: var(--mist); font-size: 15px; line-height: 1.8; margin-top: 10px; }
-.none { margin-top: 48px; text-align: center; color: var(--mist); font-size: 15px; }
+.warm-text { color: var(--moon); font-size: 15px; line-height: 1.8; margin-top: 10px; }
+.none { margin-top: 48px; text-align: center; color: var(--moon); font-size: 15px; }
 
-h2 { font-size: 14.5px; color: var(--mist); font-weight: normal; margin: 26px 0 10px; }
-.sug, .req { border: 1px solid var(--line); border-radius: 14px; background: var(--panel); padding: 16px; margin-bottom: 12px; }
+h2 { font-size: 12px; color: var(--moon); font-weight: normal; letter-spacing: .1em; margin: 26px 0 10px; }
+.sug, .req { border: 1px solid var(--line); border-radius: 18px; background: var(--panel); padding: 18px 16px; margin-bottom: 12px; }
 .hl { margin: 0 0 10px; padding: 0; list-style: none; }
-.hl li { font-family: var(--serif); font-size: 15.5px; padding: 3px 0; }
-.ice-label { margin: 10px 0 2px; color: var(--mist); font-size: 13px; }
-.opener { margin: 2px 0 12px; font-family: var(--serif); font-size: 15.5px; }
-.ice-note { margin: 0; color: var(--mist); font-size: 13.5px; }
-.primary { background: var(--amber); color: #191510; border-radius: 10px; padding: 9px 18px; font-size: 14.5px; font-weight: 600; text-decoration: none; display: inline-block; }
+.hl li { font-family: var(--serif); font-size: 15px; line-height: 1.7; padding: 3px 0 3px 16px; position: relative; }
+.hl li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 13px;
+  width: 6px;
+  height: 1px;
+  background: var(--lamp);
+}
+.ice-label { margin: 10px 0 2px; color: var(--moon); font-size: 12px; letter-spacing: .08em; }
+.opener { margin: 2px 0 12px; font-family: var(--serif); font-size: 15px; line-height: 1.7; border-left: 2px solid var(--lamp); padding-left: 12px; }
+.ice-note { margin: 0; color: var(--moon); font-size: 13.5px; }
+.primary { background: var(--lamp); color: var(--lamp-ink); border-radius: 11px; padding: 9px 18px; font-size: 14.5px; font-weight: 600; text-decoration: none; display: inline-block; }
 .primary:disabled { opacity: 0.5; }
 .link { padding: 8px 16px; }
-.ghost { background: none; border: 1px solid var(--line); color: var(--mist); border-radius: 10px; padding: 8px 16px; font-size: 14px; }
-.sent { color: var(--mist); font-size: 14px; margin: 0; }
+.ghost { background: none; border: 1px solid var(--line); color: var(--moon); border-radius: 11px; padding: 8px 16px; font-size: 14px; }
+.sent { color: var(--moon); font-size: 14px; margin: 0; }
 .who { margin: 0 0 10px; font-family: var(--serif); font-size: 15.5px; }
 .acts { display: flex; gap: 10px; align-items: center; }
 </style>

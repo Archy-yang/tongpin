@@ -60,6 +60,10 @@ func (h *Handler) optIn(c *gin.Context) {
 			httpx.FailBusiness(c, httpx.CodeBusinessRule, "风格画像尚未生成，先和 AI 多聊聊吧")
 			return
 		}
+		if errors.Is(err, ErrEmailRequired) {
+			httpx.FailBusiness(c, httpx.CodeBusinessRule, "先绑定邮箱，再进入匹配池（我的 → 绑定邮箱）")
+			return
+		}
 		if errors.Is(err, errInvalidOptIn) {
 			httpx.FailBusiness(c, httpx.CodeInvalidParam, "关系意图或年龄偏好无效")
 			return

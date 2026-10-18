@@ -162,10 +162,14 @@ func (h *Handler) deviceLogin(c *gin.Context) {
 		httpx.FailBusiness(c, httpx.CodeInvalidParam, "参数错误")
 		return
 	}
-	resp, err := h.svc.DeviceLogin(c.Request.Context(), req.DeviceID)
+	resp, err := h.svc.DeviceLogin(c.Request.Context(), req.DeviceID, c.ClientIP())
 	if err != nil {
 		if errors.Is(err, ErrUserBanned) {
 			httpx.Fail(c, http.StatusForbidden, httpx.CodeForbidden, "账号不可用")
+			return
+		}
+		if errors.Is(err, ErrSignupLimited) {
+			httpx.FailBusiness(c, httpx.CodeBusinessRule, "创建账号太频繁，请明天再试")
 			return
 		}
 		httpx.FailInternal(c, "登录失败")

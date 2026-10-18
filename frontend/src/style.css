@@ -1,15 +1,22 @@
-/* 同频 —— 深夜房间的灯下感。深色优先、单一琥珀强调、克制动效。 */
+/* 同频 —— 深夜房间的一盏灯。
+   夜里有两种光：冷月光（环境/时间/次要）与暖灯光（只给 AI 与动作）。
+   用户气泡是暖纸便签——整个夜里唯一"亮着"的纸。 */
 
 :root {
-  --ink: #14161d;      /* 页面底：偏蓝的墨色，不是纯黑 */
-  --panel: #1c1f29;    /* 面板与用户气泡 */
-  --panel-2: #222634;  /* 面板 hover/深一层 */
-  --paper: #e8e6df;    /* 正文：暖纸白 */
-  --mist: #9aa3b5;     /* 次要文字：雾灰 */
-  --amber: #e0a458;    /* 唯一强调：灯下琥珀。只给 AI 标记与主操作 */
-  --line: #2a2e3a;     /* 发丝线 */
+  --night-0: #0b0d14;   /* 夜空顶部：未眠的夜 */
+  --night-1: #171b28;   /* 近灯处：微微回暖 */
+  --panel: #1d2230;     /* 面板与真人气泡 */
+  --panel-2: #242a3a;   /* 面板 hover/深一层 */
+  --paper: #e9e3d5;     /* 正文：暖纸白 */
+  --moon: #9aabc4;      /* 冷月光：时间、次要说明 */
+  --moon-dim: #5d6a82;  /* 更远的月光：占位、状态弱化 */
+  --lamp: #e2a865;      /* 暖灯：唯一动作色（按钮/AI 标记/active）*/
+  --lamp-ink: #221a0e;  /* 灯色上的墨 */
+  --note: #e7dfcc;      /* 用户便签纸底 */
+  --note-ink: #2b2620;  /* 纸上墨字 */
+  --line: rgba(233, 227, 213, .08); /* 发丝线 */
 
-  --serif: 'Songti SC', 'STSong', 'SimSun', serif;
+  --serif: 'Noto Serif SC', 'Songti SC', 'STSong', 'SimSun', serif;
   --sans: -apple-system, 'PingFang SC', 'Noto Sans SC', 'Microsoft YaHei', sans-serif;
 
   color-scheme: dark;
@@ -21,7 +28,7 @@ html, body {
   margin: 0;
   padding: 0;
   height: 100%;
-  background: var(--ink);
+  background: linear-gradient(to bottom, var(--night-0), var(--night-1)) fixed;
   color: var(--paper);
   font-family: var(--sans);
   font-size: 16px;
@@ -45,8 +52,8 @@ button {
   border: none;
   cursor: pointer;
 }
-button:focus-visible, input:focus-visible, textarea:focus-visible {
-  outline: 2px solid var(--amber);
+button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible {
+  outline: 2px solid var(--lamp);
   outline-offset: 2px;
 }
 
@@ -55,15 +62,87 @@ input, textarea {
   background: var(--panel);
   color: var(--paper);
   border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 10px 12px;
+  border-radius: 11px;
+  padding: 10px 13px;
   font-size: 15px;
 }
-input::placeholder, textarea::placeholder { color: var(--mist); }
+input::placeholder, textarea::placeholder { color: var(--moon-dim); }
+
+/* 细滚动条，不抢夜的戏 */
+::-webkit-scrollbar { width: 3px; }
+::-webkit-scrollbar-thumb { background: var(--line); border-radius: 2px; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* 动作按钮的统一语言：灯色 / 幽灵 + 按压回缩 */
+.btn-lamp {
+  background: var(--lamp);
+  color: var(--lamp-ink);
+  border-radius: 11px;
+  font-weight: 600;
+}
+.btn-ghost {
+  background: none;
+  border: 1px solid var(--line);
+  color: var(--moon);
+  border-radius: 11px;
+}
+button { transition: transform .08s ease, opacity .16s ease; }
+button:active:not(:disabled) { transform: scale(.96); }
+button:disabled { opacity: .4; cursor: default; }
+
+/* 页面头：时段小字 + 灯点 + 宋体标题 */
+.pagehead { padding: 10px 20px 12px; flex: none; }
+.pagehead .when {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11.5px;
+  color: var(--moon-dim);
+  letter-spacing: .14em;
+}
+.pagehead .when::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--lamp);
+  box-shadow: 0 0 8px rgba(226, 168, 101, .8); /* 灯亮着 */
+}
+.pagehead h1 {
+  font-family: var(--serif);
+  font-weight: 600;
+  font-size: 21px;
+  margin: 4px 0 0;
+  text-wrap: balance;
+}
+.pagehead .sub {
+  margin: 2px 0 0;
+  color: var(--moon);
+  font-size: 12.5px;
+}
+
+/* 消息入场：淡入上浮（只对新消息播放） */
+.msg-in { animation: msg-in .18s ease-out both; }
+@keyframes msg-in {
+  from { opacity: 0; transform: translateY(7px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* AI 思考中的三点呼吸 */
+.typing-dots { display: inline-flex; gap: 5px; align-items: center; padding: 8px 0 2px; }
+.typing-dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--moon-dim);
+  animation: breathe 1.1s ease-in-out infinite;
+}
+.typing-dots i:nth-child(2) { animation-delay: .18s; }
+.typing-dots i:nth-child(3) { animation-delay: .36s; }
+@keyframes breathe { 0%, 100% { opacity: .25; } 45% { opacity: 1; } }
 
 /* 载入的唯一一次淡入 */
 .page-enter { animation: rise .45s ease-out both; }

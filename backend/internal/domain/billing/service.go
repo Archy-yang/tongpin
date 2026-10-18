@@ -2,6 +2,7 @@ package billing
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -11,7 +12,18 @@ import (
 type Service struct {
 	repo      *Repository
 	providers map[string]PaymentProvider // 渠道适配器，装配期注册
+	gate      AccountGate                // 可为 nil（关闭购买前绑邮箱门槛）
 }
+
+// AccountGate 购买门槛：支付必须挂在可恢复的账号上。
+type AccountGate interface {
+	HasEmail(ctx context.Context, userID int64) (bool, error)
+}
+
+var ErrEmailRequired = errors.New("email required before checkout")
+
+// SetAccountGate 装配期注入购买门槛。
+func (s *Service) SetAccountGate(g AccountGate) { s.gate = g }
 
 func NewService(repo *Repository) *Service {
 	return &Service{repo: repo, providers: make(map[string]PaymentProvider)}
@@ -32,6 +44,16 @@ func (s *Service) provider(name string) (PaymentProvider, error) {
 
 // StartCheckout 发起一次会员购买：建收银台会话，返回跳转 URL。
 func (s *Service) StartCheckout(ctx context.Context, userID int64, plan string) (string, error) {
+	// 付款必须挂在可恢复的账号上：先绑定邮箱，再谈钱
+	if s.gate != nil {
+		bound, err := s.gate.HasEmail(ctx, userID)
+		if err != nil {
+			return "", fmt.Errorf("account gate: %w", err)
+		}
+		if !bound {
+			return "", ErrEmailRequired
+		}
+	}
 	if plan == "" {
 		plan = PlanMemberMonthly
 	}
